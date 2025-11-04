@@ -117,7 +117,7 @@ class MullerIntuisApiClient:
         self.username = username
         self.password = password
         self._access_token = access_token
-        self._refresh_token = refresh_token
+        self._refresh_token_value = refresh_token  # Renamed to avoid conflict with method
         self._token_expires_at = 0
 
     async def _refresh_token(self) -> None:
@@ -164,7 +164,7 @@ class MullerIntuisApiClient:
                     raise ConfigEntryAuthFailed("No access_token in response")
 
                 self._access_token = data["access_token"]
-                self._refresh_token = data.get("refresh_token", self._refresh_token)
+                self._refresh_token_value = data.get("refresh_token", self._refresh_token_value)
                 
                 # Calculate expiration time
                 expires_in = data.get("expires_in", 10800)
