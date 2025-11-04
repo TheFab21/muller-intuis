@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Muller Intuis Connect Setup",
+        "description": "Connect your Muller Intuitiv system using your Netatmo credentials.\n\nYou need to create an app on https://dev.netatmo.com to get your Client ID and Client Secret.",
+        "data": {
+          "client_id": "Client ID (from dev.netatmo.com)",
+          "client_secret": "Client Secret (from dev.netatmo.com)",
+          "username": "Email (Muller Intuitiv account)",
+          "password": "Password (Muller Intuitiv account)"
+        },
+        "data_description": {
+          "client_id": "Client ID obtained from Netatmo developer portal",
+          "client_secret": "Client Secret obtained from Netatmo developer portal",
+          "username": "Email address used for the Muller Intuitiv mobile app",
+          "password": "Password for your Muller Intuitiv account"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Muller Intuitiv server. Check your internet connection.",
+      "invalid_auth": "Invalid credentials. Check your Client ID, Client Secret, email and password.",
+      "unknown": "Unknown error. Check the logs for more information."
+    },
+    "abort": {
+      "already_configured": "This Muller Intuitiv account is already configured in Home Assistant."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Muller Intuis Connect Options",
+        "description": "Configure options for your Muller Intuis integration.",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  }
+}
