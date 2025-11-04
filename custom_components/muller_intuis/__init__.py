@@ -326,10 +326,41 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Fetching home status for home_id: %s", self.home_id)
             status_data = await self.api_client.get_home_status(self.home_id)
             _LOGGER.debug("Home status received")
-            
+
+            status_body = status_data.get("body", {})
+            home_data = status_body.get("home", {})
+
+            if not self.home_id:
+                self.home_id = home_data.get("id")
+                _LOGGER.info("Home ID updated from status: %s", self.home_id)
+
+            rooms: list[dict[str, Any]] = home_data.get("rooms", []) or []
+            schedules_list: list[dict[str, Any]] = home_data.get("schedules", []) or []
+
+            schedules: dict[str, dict[str, Any]] = {}
+            selected_schedule_id: str | None = None
+            for schedule in schedules_list:
+                schedule_id = schedule.get("id")
+                if not schedule_id:
+                    continue
+                schedules[schedule_id] = schedule
+                if schedule.get("selected"):
+                    selected_schedule_id = schedule_id
+
+            rooms_by_id: dict[str, dict[str, Any]] = {}
+            for room in rooms:
+                room_id = room.get("id")
+                if room_id:
+                    rooms_by_id[room_id] = room
+
             return {
                 "home_id": self.home_id,
-                "status": status_data.get("body", {}),
+                "home_name": home_data.get("name"),
+                "status": status_body,
+                "rooms": rooms,
+                "rooms_by_id": rooms_by_id,
+                "schedules": schedules,
+                "selected_schedule_id": selected_schedule_id,
             }
 
         except ConfigEntryAuthFailed as err:
