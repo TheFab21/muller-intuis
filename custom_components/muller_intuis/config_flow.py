@@ -1,103 +1,150 @@
-"""Config flow pour Muller Intuis Connect."""
+"""Config flow for Muller Intuis Connect integration."""
+from __future__ import annotations
+
 import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET
+from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import MullerIntuisAPI
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# Schéma de configuration
+STEP_USER_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_CLIENT_ID): str,
+        vol.Required(CONF_CLIENT_SECRET): str,
+        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_PASSWORD): str,
+    }
+)
 
-class MullerIntuisConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Gestion du flux de configuration."""
+
+async def validate_auth(
+    hass: HomeAssistant, client_id: str, client_secret: str, username: str, password: str
+) -> dict[str, Any]:
+    """Validate the user input allows us to connect.
+
+    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
+    """
+    session = async_get_clientsession(hass)
+
+    # Paramètres pour l'authentification OAuth2 Netatmo (Muller Intuitiv)
+    auth_data = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "username": username,
+        "password": password,
+        "grant_type": "password",
+        "user_prefix": "muller",
+        "scope": "read_muller write_muller",
+    }
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+    try:
+        async with session.post(
+            "https://app.muller-intuitiv.net/oauth2/token",
+            data=auth_data,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                _LOGGER.error("Authentication failed: %s - %s", response.status, error_text)
+                raise InvalidAuth(f"Authentication failed with status {response.status}")
+
+            data = await response.json()
+
+            if "access_token" not in data:
+                _LOGGER.error("No access_token in response: %s", data)
+                raise InvalidAuth("No access_token in response")
+
+            # Retourner les tokens
+            return {
+                "access_token": data["access_token"],
+                "refresh_token": data["refresh_token"],
+                "expires_in": data.get("expires_in", 10800),
+            }
+
+    except aiohttp.ClientError as err:
+        _LOGGER.error("Connection error during authentication: %s", err)
+        raise CannotConnect from err
+    except Exception as err:
+        _LOGGER.error("Unexpected error during authentication: %s", err)
+        raise InvalidAuth from err
+
+
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Muller Intuis Connect."""
 
     VERSION = 1
-
-    def __init__(self):
-        """Initialiser le flux de configuration."""
-        self.api = None
-        self.home_id = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Gérer l'étape initiale."""
-        errors = {}
+        """Handle the initial step."""
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            client_id = user_input[CONF_CLIENT_ID]
-            client_secret = user_input[CONF_CLIENT_SECRET]
-
-            # Créer une instance de l'API pour tester
-            session = async_get_clientsession(self.hass)
-            api = MullerIntuisAPI(client_id, client_secret, session, self.hass)
-
-            # Tester l'authentification
             try:
-                # Pour le premier setup, demander les tokens OAuth
-                return await self.async_step_oauth()
-            except Exception as err:
-                _LOGGER.error("Erreur de connexion: %s", err)
-                errors["base"] = "cannot_connect"
-
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_CLIENT_ID): str,
-                vol.Required(CONF_CLIENT_SECRET): str,
-            }
-        )
-
-        return self.async_show_form(
-            step_id="user", data_schema=data_schema, errors=errors
-        )
-
-    async def async_step_oauth(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Étape OAuth pour obtenir les tokens."""
-        errors = {}
-
-        if user_input is not None:
-            # Valider les tokens
-            refresh_token = user_input.get("refresh_token")
-            
-            if not refresh_token:
-                errors["base"] = "invalid_auth"
-            else:
-                # Sauvegarder la configuration
-                return self.async_create_entry(
-                    title="Muller Intuis Connect",
-                    data={
-                        CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
-                        CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
-                        "refresh_token": refresh_token,
-                        "home_id": user_input.get("home_id"),
-                    },
+                # Valider les credentials
+                auth_info = await validate_auth(
+                    self.hass,
+                    user_input[CONF_CLIENT_ID],
+                    user_input[CONF_CLIENT_SECRET],
+                    user_input[CONF_USERNAME],
+                    user_input[CONF_PASSWORD],
                 )
 
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_CLIENT_ID): str,
-                vol.Required(CONF_CLIENT_SECRET): str,
-                vol.Required("refresh_token"): str,
-                vol.Optional("home_id"): str,
-            }
-        )
+                # Créer un unique_id basé sur le username
+                await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
+                self._abort_if_unique_id_configured()
+
+                # Stocker les tokens dans les données
+                data = {
+                    CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
+                    CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
+                    CONF_USERNAME: user_input[CONF_USERNAME],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                    "access_token": auth_info["access_token"],
+                    "refresh_token": auth_info["refresh_token"],
+                    "expires_in": auth_info["expires_in"],
+                }
+
+                return self.async_create_entry(
+                    title=f"Muller Intuis ({user_input[CONF_USERNAME]})",
+                    data=data,
+                )
+
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="oauth",
-            data_schema=data_schema,
+            step_id="user",
+            data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "auth_url": "https://api.netatmo.com/oauth2/authorize",
-                "instructions": "Suivez le processus OAuth sur le site Netatmo pour obtenir votre refresh_token",
-            },
         )
+
+
+class CannotConnect(Exception):
+    """Error to indicate we cannot connect."""
+
+
+class InvalidAuth(Exception):
+    """Error to indicate there is invalid auth."""

@@ -2,31 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configure Muller Intuis Connect",
-        "description": "Set up your Muller Intuis (Netatmo API) connection",
-        "data": {
-          "client_id": "Client ID",
-          "client_secret": "Client Secret"
-        }
-      },
-      "oauth": {
-        "title": "OAuth Authentication",
-        "description": "Enter your Netatmo OAuth credentials. Follow the guide at https://dev.netatmo.com/",
+        "title": "Configuration Muller Intuis Connect",
+        "description": "Entrez vos identifiants Netatmo/Muller Intuitiv",
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
-          "refresh_token": "Refresh Token",
-          "home_id": "Home ID (optional)"
+          "username": "Nom d'utilisateur (email)",
+          "password": "Mot de passe"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to API",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unknown error"
+      "cannot_connect": "Impossible de se connecter au serveur",
+      "invalid_auth": "Identifiants invalides",
+      "unknown": "Erreur inconnue"
     },
     "abort": {
-      "already_configured": "This integration is already configured"
+      "already_configured": "Ce compte est déjà configuré"
     }
   }
 }

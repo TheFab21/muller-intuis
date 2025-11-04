@@ -1,231 +1,306 @@
-"""Intégration Muller Intuis Connect pour Home Assistant."""
-import logging
-from datetime import timedelta
+"""The Muller Intuis Connect integration."""
+from __future__ import annotations
 
-import voluptuous as vol
+from datetime import timedelta
+import logging
+from typing import Any
+
+import aiohttp
+import async_timeout
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, Platform
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.const import (
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    Platform,
+)
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 
 from .const import (
+    API_AUTH_URL,
+    API_HOMES_URL,
+    API_HOMESTATUS_URL,
     DOMAIN,
-    SERVICE_CREATE_SCHEDULE,
-    SERVICE_DELETE_SCHEDULE,
-    SERVICE_RENAME_SCHEDULE,
-    SERVICE_SET_HOME_MODE,
-    SERVICE_SET_ROOM_THERMPOINT,
-    SERVICE_SET_SCHEDULE,
-    SERVICE_SYNC_SCHEDULE,
+    OAUTH_GRANT_TYPE,
+    OAUTH_SCOPE,
+    OAUTH_USER_PREFIX,
+    SCAN_INTERVAL_SECONDS,
+    TOKEN_REFRESH_MARGIN_SECONDS,
 )
-from .api import MullerIntuisAPI
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT]
-
-SCAN_INTERVAL = timedelta(minutes=5)
-
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Configuration via YAML non supportée."""
-    return True
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Configuration de l'intégration via config entry."""
+    """Set up Muller Intuis Connect from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    client_id = entry.data[CONF_CLIENT_ID]
-    client_secret = entry.data[CONF_CLIENT_SECRET]
-    home_id = entry.data.get("home_id")
+    # Créer le client API
+    api_client = MullerIntuisApiClient(
+        hass,
+        entry.data[CONF_CLIENT_ID],
+        entry.data[CONF_CLIENT_SECRET],
+        entry.data[CONF_USERNAME],
+        entry.data[CONF_PASSWORD],
+        entry.data.get("access_token"),
+        entry.data.get("refresh_token"),
+    )
 
-    session = async_get_clientsession(hass)
-    api = MullerIntuisAPI(client_id, client_secret, session, hass, home_id)
+    # Créer le coordinator
+    coordinator = MullerIntuisDataUpdateCoordinator(hass, api_client)
 
-    # Authentification initiale
-    try:
-        await api.async_get_access_token()
-        home_data = await api.async_get_homestatus()
-    except Exception as err:
-        _LOGGER.error("Erreur lors de l'authentification : %s", err)
-        return False
-
-    # Créer le coordinateur de données
-    coordinator = MullerIntuisDataUpdateCoordinator(hass, api)
+    # Fetch initial data
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
-        "api": api,
+        "api_client": api_client,
     }
 
-    # Configurer les plateformes
+    # Setup platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Enregistrer les services
-    await async_register_services(hass, api)
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Décharger l'intégration."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    if unload_ok:
+    """Unload a config entry."""
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
 
 
-class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
-    """Coordinateur pour mettre à jour les données Muller Intuis."""
+class MullerIntuisApiClient:
+    """API client for Muller Intuitiv."""
 
-    def __init__(self, hass: HomeAssistant, api: MullerIntuisAPI) -> None:
-        """Initialiser le coordinateur."""
-        self.api = api
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client_id: str,
+        client_secret: str,
+        username: str,
+        password: str,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+    ) -> None:
+        """Initialize the API client."""
+        self.hass = hass
+        self.session = async_get_clientsession(hass)
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.username = username
+        self.password = password
+        self._access_token = access_token
+        self._refresh_token = refresh_token
+        self._token_expires_at = 0
+
+    async def _refresh_token(self) -> None:
+        """Refresh the access token."""
+        auth_data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "username": self.username,
+            "password": self.password,
+            "grant_type": OAUTH_GRANT_TYPE,
+            "user_prefix": OAUTH_USER_PREFIX,
+            "scope": OAUTH_SCOPE,
+        }
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        try:
+            async with async_timeout.timeout(30):
+                async with self.session.post(
+                    API_AUTH_URL,
+                    data=auth_data,
+                    headers=headers,
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        _LOGGER.error(
+                            "Token refresh failed: %s - %s", response.status, error_text
+                        )
+                        raise ConfigEntryAuthFailed("Token refresh failed")
+
+                    data = await response.json()
+
+                    if "access_token" not in data:
+                        raise ConfigEntryAuthFailed("No access_token in response")
+
+                    self._access_token = data["access_token"]
+                    self._refresh_token = data.get("refresh_token", self._refresh_token)
+                    
+                    # Calculate expiration time
+                    import time
+                    expires_in = data.get("expires_in", 10800)
+                    self._token_expires_at = time.time() + expires_in
+
+                    _LOGGER.debug("Token refreshed successfully, expires in %s seconds", expires_in)
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Connection error during token refresh: %s", err)
+            raise UpdateFailed(f"Connection error: {err}") from err
+
+    async def _ensure_token_valid(self) -> None:
+        """Ensure the access token is valid."""
+        import time
+        
+        # Refresh if token is not set or about to expire
+        if (
+            not self._access_token
+            or time.time() >= (self._token_expires_at - TOKEN_REFRESH_MARGIN_SECONDS)
+        ):
+            await self._refresh_token()
+
+    async def _api_request(
+        self, url: str, method: str = "POST", data: dict | None = None
+    ) -> dict[str, Any]:
+        """Make an API request."""
+        await self._ensure_token_valid()
+
+        headers = {
+            "Authorization": f"Bearer {self._access_token}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        try:
+            async with async_timeout.timeout(30):
+                if method == "GET":
+                    async with self.session.get(url, headers=headers, params=data) as response:
+                        return await self._handle_response(response)
+                else:
+                    async with self.session.post(url, headers=headers, data=data) as response:
+                        return await self._handle_response(response)
+
+        except aiohttp.ClientError as err:
+            _LOGGER.error("API request error: %s", err)
+            raise UpdateFailed(f"API request failed: {err}") from err
+
+    async def _handle_response(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
+        """Handle API response."""
+        if response.status == 401:
+            # Token expired, refresh and retry will happen on next call
+            self._access_token = None
+            raise ConfigEntryAuthFailed("Authentication failed")
+
+        if response.status != 200:
+            error_text = await response.text()
+            _LOGGER.error("API error: %s - %s", response.status, error_text)
+            raise UpdateFailed(f"API error: {response.status}")
+
+        data = await response.json()
+        
+        if data.get("status") != "ok":
+            error = data.get("error", {})
+            error_msg = error.get("message", "Unknown error")
+            _LOGGER.error("API returned error: %s", error_msg)
+            raise UpdateFailed(f"API error: {error_msg}")
+
+        return data
+
+    async def get_homes_data(self) -> dict[str, Any]:
+        """Get homes data."""
+        return await self._api_request(API_HOMES_URL, method="GET")
+
+    async def get_home_status(self, home_id: str) -> dict[str, Any]:
+        """Get home status."""
+        return await self._api_request(
+            API_HOMESTATUS_URL,
+            method="GET",
+            data={"home_id": home_id},
+        )
+
+    async def set_room_thermpoint(
+        self, home_id: str, room_id: str, mode: str, temp: float | None = None
+    ) -> dict[str, Any]:
+        """Set room temperature setpoint."""
+        from .const import API_SETROOMTHERMPOINT_URL
+        
+        data = {
+            "home_id": home_id,
+            "room_id": room_id,
+            "mode": mode,
+        }
+        
+        if temp is not None:
+            data["temp"] = temp
+
+        return await self._api_request(API_SETROOMTHERMPOINT_URL, data=data)
+
+    async def set_therm_mode(
+        self, home_id: str, mode: str, schedule_id: str | None = None
+    ) -> dict[str, Any]:
+        """Set home thermostat mode."""
+        from .const import API_SETTHERMMODE_URL
+        
+        data = {
+            "home_id": home_id,
+            "mode": mode,
+        }
+        
+        if schedule_id:
+            data["schedule_id"] = schedule_id
+
+        return await self._api_request(API_SETTHERMMODE_URL, data=data)
+
+
+class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching Muller Intuis data."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: MullerIntuisApiClient,
+    ) -> None:
+        """Initialize."""
+        self.api_client = api_client
+        self.home_id: str | None = None
+
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=SCAN_INTERVAL,
+            update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS),
         )
 
-    async def _async_update_data(self):
-        """Récupérer les données de l'API."""
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Update data via library."""
         try:
-            # Rafraîchir le token si nécessaire
-            await self.api.async_refresh_token_if_needed()
+            # Get homes data on first run to get home_id
+            if not self.home_id:
+                homes_data = await self.api_client.get_homes_data()
+                homes = homes_data.get("body", {}).get("homes", [])
+                
+                if not homes:
+                    raise UpdateFailed("No homes found in account")
+                
+                # Use first home
+                self.home_id = homes[0]["id"]
+                _LOGGER.info("Using home_id: %s", self.home_id)
 
-            # Récupérer les données de la maison
-            home_status = await self.api.async_get_homestatus()
+            # Get home status
+            status_data = await self.api_client.get_home_status(self.home_id)
             
-            # Récupérer les plannings
-            schedules = await self.api.async_get_schedules()
-
             return {
-                "home_status": home_status,
-                "schedules": schedules,
-                "rooms": home_status.get("body", {}).get("home", {}).get("rooms", []),
+                "home_id": self.home_id,
+                "status": status_data.get("body", {}),
             }
+
+        except ConfigEntryAuthFailed as err:
+            # Re-raise auth errors
+            raise err
         except Exception as err:
-            raise UpdateFailed(f"Erreur lors de la mise à jour des données: {err}")
-
-
-async def async_register_services(hass: HomeAssistant, api: MullerIntuisAPI) -> None:
-    """Enregistrer les services personnalisés."""
-
-    async def handle_set_schedule(call: ServiceCall) -> None:
-        """Gérer le service set_schedule."""
-        schedule_id = call.data["schedule_id"]
-        await api.async_switch_schedule(schedule_id)
-
-    async def handle_sync_schedule(call: ServiceCall) -> None:
-        """Gérer le service sync_schedule."""
-        schedule_id = call.data["schedule_id"]
-        timetable = call.data["timetable"]
-        zones = call.data["zones"]
-        name = call.data.get("name")
-        await api.async_sync_schedule(schedule_id, timetable, zones, name)
-
-    async def handle_create_schedule(call: ServiceCall) -> None:
-        """Gérer le service create_schedule."""
-        name = call.data["name"]
-        timetable = call.data["timetable"]
-        zones = call.data["zones"]
-        await api.async_create_schedule(name, timetable, zones)
-
-    async def handle_delete_schedule(call: ServiceCall) -> None:
-        """Gérer le service delete_schedule."""
-        schedule_id = call.data["schedule_id"]
-        await api.async_delete_schedule(schedule_id)
-
-    async def handle_rename_schedule(call: ServiceCall) -> None:
-        """Gérer le service rename_schedule."""
-        schedule_id = call.data["schedule_id"]
-        name = call.data["name"]
-        await api.async_rename_schedule(schedule_id, name)
-
-    async def handle_set_room_thermpoint(call: ServiceCall) -> None:
-        """Gérer le service set_room_thermpoint."""
-        room_id = call.data["room_id"]
-        mode = call.data["mode"]
-        temp = call.data.get("temp")
-        endtime = call.data.get("endtime")
-        await api.async_set_thermpoint(room_id, mode, temp, endtime)
-
-    async def handle_set_home_mode(call: ServiceCall) -> None:
-        """Gérer le service set_home_mode."""
-        mode = call.data["mode"]
-        schedule_id = call.data.get("schedule_id")
-        endtime = call.data.get("endtime")
-        await api.async_set_therm_mode(mode, endtime, schedule_id)
-
-    # Schémas de validation
-    set_schedule_schema = vol.Schema({vol.Required("schedule_id"): cv.string})
-    
-    sync_schedule_schema = vol.Schema({
-        vol.Required("schedule_id"): cv.string,
-        vol.Required("timetable"): list,
-        vol.Required("zones"): list,
-        vol.Optional("name"): cv.string,
-    })
-    
-    create_schedule_schema = vol.Schema({
-        vol.Required("name"): cv.string,
-        vol.Required("timetable"): list,
-        vol.Required("zones"): list,
-    })
-    
-    delete_schedule_schema = vol.Schema({vol.Required("schedule_id"): cv.string})
-    
-    rename_schedule_schema = vol.Schema({
-        vol.Required("schedule_id"): cv.string,
-        vol.Required("name"): cv.string,
-    })
-    
-    set_room_thermpoint_schema = vol.Schema({
-        vol.Required("room_id"): cv.string,
-        vol.Required("mode"): cv.string,
-        vol.Optional("temp"): vol.Coerce(float),
-        vol.Optional("endtime"): vol.Coerce(int),
-    })
-    
-    set_home_mode_schema = vol.Schema({
-        vol.Required("mode"): cv.string,
-        vol.Optional("schedule_id"): cv.string,
-        vol.Optional("endtime"): vol.Coerce(int),
-    })
-
-    # Enregistrement des services
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_SCHEDULE, handle_set_schedule, schema=set_schedule_schema
-    )
-    
-    hass.services.async_register(
-        DOMAIN, SERVICE_SYNC_SCHEDULE, handle_sync_schedule, schema=sync_schedule_schema
-    )
-    
-    hass.services.async_register(
-        DOMAIN, SERVICE_CREATE_SCHEDULE, handle_create_schedule, schema=create_schedule_schema
-    )
-    
-    hass.services.async_register(
-        DOMAIN, SERVICE_DELETE_SCHEDULE, handle_delete_schedule, schema=delete_schedule_schema
-    )
-    
-    hass.services.async_register(
-        DOMAIN, SERVICE_RENAME_SCHEDULE, handle_rename_schedule, schema=rename_schedule_schema
-    )
-    
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_ROOM_THERMPOINT, handle_set_room_thermpoint, schema=set_room_thermpoint_schema
-    )
-    
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_HOME_MODE, handle_set_home_mode, schema=set_home_mode_schema
-    )
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
