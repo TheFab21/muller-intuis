@@ -1,0 +1,179 @@
+set_schedule:
+  name: Changer le planning actif
+  description: Change le planning de chauffage actif
+  fields:
+    schedule_id:
+      name: ID du planning
+      description: Identifiant du planning à activer
+      required: true
+      example: "1234567890"
+      selector:
+        text:
+
+sync_schedule:
+  name: Synchroniser un planning
+  description: Met à jour un planning existant avec de nouvelles données
+  fields:
+    schedule_id:
+      name: ID du planning
+      description: Identifiant du planning à modifier
+      required: true
+      example: "1234567890"
+      selector:
+        text:
+    name:
+      name: Nom
+      description: Nouveau nom du planning (optionnel)
+      required: false
+      example: "Mon planning personnalisé"
+      selector:
+        text:
+    timetable:
+      name: Emploi du temps
+      description: Liste des créneaux horaires (format JSON)
+      required: true
+      example: '[{"m_offset": 0, "zone_id": 0}]'
+      selector:
+        object:
+    zones:
+      name: Zones
+      description: Configuration des zones de température (format JSON)
+      required: true
+      example: '[{"id": 0, "name": "Confort", "rooms_temp": [{"room_id": "123", "temp": 20}]}]'
+      selector:
+        object:
+
+create_schedule:
+  name: Créer un nouveau planning
+  description: Crée un nouveau planning de chauffage
+  fields:
+    name:
+      name: Nom
+      description: Nom du nouveau planning
+      required: true
+      example: "Planning vacances"
+      selector:
+        text:
+    timetable:
+      name: Emploi du temps
+      description: Liste des créneaux horaires (format JSON)
+      required: true
+      example: '[{"m_offset": 0, "zone_id": 0}]'
+      selector:
+        object:
+    zones:
+      name: Zones
+      description: Configuration des zones de température (format JSON)
+      required: true
+      example: '[{"id": 0, "name": "Confort", "rooms_temp": [{"room_id": "123", "temp": 20}]}]'
+      selector:
+        object:
+
+delete_schedule:
+  name: Supprimer un planning
+  description: Supprime un planning de chauffage
+  fields:
+    schedule_id:
+      name: ID du planning
+      description: Identifiant du planning à supprimer
+      required: true
+      example: "1234567890"
+      selector:
+        text:
+
+rename_schedule:
+  name: Renommer un planning
+  description: Change le nom d'un planning existant
+  fields:
+    schedule_id:
+      name: ID du planning
+      description: Identifiant du planning
+      required: true
+      example: "1234567890"
+      selector:
+        text:
+    name:
+      name: Nouveau nom
+      description: Nouveau nom pour le planning
+      required: true
+      example: "Planning hiver"
+      selector:
+        text:
+
+set_room_thermpoint:
+  name: Définir la température d'une pièce
+  description: Change la consigne de température d'une pièce spécifique
+  fields:
+    room_id:
+      name: ID de la pièce
+      description: Identifiant de la pièce
+      required: true
+      example: "1234567890"
+      selector:
+        text:
+    mode:
+      name: Mode
+      description: Mode de fonctionnement
+      required: true
+      example: "manual"
+      selector:
+        select:
+          options:
+            - "manual"
+            - "schedule"
+            - "away"
+            - "hg"
+    temp:
+      name: Température
+      description: Température cible en °C (pour le mode manuel)
+      required: false
+      example: 20.5
+      selector:
+        number:
+          min: 7
+          max: 30
+          step: 0.5
+          unit_of_measurement: "°C"
+    endtime:
+      name: Heure de fin
+      description: Timestamp de fin du mode (optionnel)
+      required: false
+      example: 1234567890
+      selector:
+        number:
+          min: 0
+          max: 2147483647
+          mode: box
+
+set_home_mode:
+  name: Définir le mode de la maison
+  description: Change le mode de chauffage pour toute la maison
+  fields:
+    mode:
+      name: Mode
+      description: Mode de fonctionnement global
+      required: true
+      example: "schedule"
+      selector:
+        select:
+          options:
+            - "schedule"
+            - "away"
+            - "hg"
+    schedule_id:
+      name: ID du planning
+      description: ID du planning à utiliser (pour le mode schedule)
+      required: false
+      example: "1234567890"
+      selector:
+        text:
+    endtime:
+      name: Heure de fin
+      description: Timestamp de fin du mode (optionnel)
+      required: false
+      example: 1234567890
+      selector:
+        number:
+          min: 0
+          max: 2147483647
+          mode: box
