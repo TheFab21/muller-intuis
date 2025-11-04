@@ -44,34 +44,48 @@ PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Muller Intuis Connect from a config entry."""
+    _LOGGER.info("Setting up Muller Intuis Connect integration")
     hass.data.setdefault(DOMAIN, {})
 
-    # Créer le client API
-    api_client = MullerIntuisApiClient(
-        hass,
-        entry.data[CONF_CLIENT_ID],
-        entry.data[CONF_CLIENT_SECRET],
-        entry.data[CONF_USERNAME],
-        entry.data[CONF_PASSWORD],
-        entry.data.get("access_token"),
-        entry.data.get("refresh_token"),
-    )
+    try:
+        # Créer le client API
+        _LOGGER.debug("Creating API client with credentials")
+        api_client = MullerIntuisApiClient(
+            hass,
+            entry.data[CONF_CLIENT_ID],
+            entry.data[CONF_CLIENT_SECRET],
+            entry.data[CONF_USERNAME],
+            entry.data[CONF_PASSWORD],
+            entry.data.get("access_token"),
+            entry.data.get("refresh_token"),
+        )
 
-    # Créer le coordinator
-    coordinator = MullerIntuisDataUpdateCoordinator(hass, api_client)
+        # Créer le coordinator
+        _LOGGER.debug("Creating data update coordinator")
+        coordinator = MullerIntuisDataUpdateCoordinator(hass, api_client)
 
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
+        # Fetch initial data
+        _LOGGER.debug("Fetching initial data")
+        await coordinator.async_config_entry_first_refresh()
+        _LOGGER.info("Initial data fetch successful")
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        "coordinator": coordinator,
-        "api_client": api_client,
-    }
+        hass.data[DOMAIN][entry.entry_id] = {
+            "coordinator": coordinator,
+            "api_client": api_client,
+        }
 
-    # Setup platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Setup platforms
+        _LOGGER.debug("Setting up platforms")
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        _LOGGER.info("Muller Intuis Connect setup completed successfully")
 
-    return True
+        return True
+    
+    except Exception as err:
+        _LOGGER.exception("Error setting up Muller Intuis Connect: %s", err)
+        _LOGGER.error("Exception type: %s", type(err).__name__)
+        _LOGGER.error("Exception args: %s", err.args)
+        raise
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -108,6 +122,7 @@ class MullerIntuisApiClient:
 
     async def _refresh_token(self) -> None:
         """Refresh the access token."""
+        _LOGGER.debug("Starting token refresh")
         auth_data = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
@@ -117,12 +132,15 @@ class MullerIntuisApiClient:
             "user_prefix": OAUTH_USER_PREFIX,
             "scope": OAUTH_SCOPE,
         }
+        
+        _LOGGER.debug("Auth data prepared (credentials hidden)")
 
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
         }
 
         try:
+            _LOGGER.debug("Sending POST request to %s", API_AUTH_URL)
             timeout = aiohttp.ClientTimeout(total=30)
             async with self.session.post(
                 API_AUTH_URL,
@@ -130,6 +148,7 @@ class MullerIntuisApiClient:
                 headers=headers,
                 timeout=timeout,
             ) as response:
+                _LOGGER.debug("Received response with status: %s", response.status)
                 if response.status != 200:
                     error_text = await response.text()
                     _LOGGER.error(
@@ -138,8 +157,10 @@ class MullerIntuisApiClient:
                     raise ConfigEntryAuthFailed("Token refresh failed")
 
                 data = await response.json()
+                _LOGGER.debug("Response parsed as JSON")
 
                 if "access_token" not in data:
+                    _LOGGER.error("No access_token in response")
                     raise ConfigEntryAuthFailed("No access_token in response")
 
                 self._access_token = data["access_token"]
@@ -149,11 +170,17 @@ class MullerIntuisApiClient:
                 expires_in = data.get("expires_in", 10800)
                 self._token_expires_at = time.time() + expires_in
 
-                _LOGGER.debug("Token refreshed successfully, expires in %s seconds", expires_in)
+                _LOGGER.info("Token refreshed successfully, expires in %s seconds", expires_in)
 
         except aiohttp.ClientError as err:
             _LOGGER.error("Connection error during token refresh: %s", err)
+            _LOGGER.error("Error type: %s", type(err).__name__)
             raise UpdateFailed(f"Connection error: {err}") from err
+        except Exception as err:
+            _LOGGER.exception("Unexpected error during token refresh: %s", err)
+            _LOGGER.error("Error type: %s", type(err).__name__)
+            _LOGGER.error("Error args: %s", err.args)
+            raise
 
     async def _ensure_token_valid(self) -> None:
         """Ensure the access token is valid."""
@@ -278,13 +305,17 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via library."""
+        _LOGGER.debug("Starting data update")
         try:
             # Get homes data on first run to get home_id
             if not self.home_id:
+                _LOGGER.debug("No home_id set, fetching homes data")
                 homes_data = await self.api_client.get_homes_data()
+                _LOGGER.debug("Homes data received")
                 homes = homes_data.get("body", {}).get("homes", [])
                 
                 if not homes:
+                    _LOGGER.error("No homes found in account")
                     raise UpdateFailed("No homes found in account")
                 
                 # Use first home
@@ -292,7 +323,9 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.info("Using home_id: %s", self.home_id)
 
             # Get home status
+            _LOGGER.debug("Fetching home status for home_id: %s", self.home_id)
             status_data = await self.api_client.get_home_status(self.home_id)
+            _LOGGER.debug("Home status received")
             
             return {
                 "home_id": self.home_id,
@@ -300,7 +333,11 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
             }
 
         except ConfigEntryAuthFailed as err:
+            _LOGGER.error("Authentication error: %s", err)
             # Re-raise auth errors
             raise err
         except Exception as err:
+            _LOGGER.exception("Error communicating with API: %s", err)
+            _LOGGER.error("Exception type: %s", type(err).__name__)
+            _LOGGER.error("Exception args: %s", err.args)
             raise UpdateFailed(f"Error communicating with API: {err}") from err

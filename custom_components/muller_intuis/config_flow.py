@@ -131,8 +131,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
+            except Exception as err:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception in config flow: %s", err)
+                _LOGGER.error("Exception type: %s", type(err).__name__)
+                _LOGGER.error("Exception args: %s", err.args)
                 errors["base"] = "unknown"
 
         return self.async_show_form(
