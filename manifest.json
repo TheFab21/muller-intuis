@@ -1,0 +1,12 @@
+{
+  "domain": "muller_intuis",
+  "name": "Muller Intuis Connect",
+  "codeowners": ["@TheFab21"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/TheFab21/muller-intuis",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/TheFab21/muller-intuis/issues",
+  "requirements": [],
+  "version": "1.0.3"
+}
