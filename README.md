@@ -1,220 +1,228 @@
-# Intégration Muller Intuis Connect pour Home Assistant
+# Muller Intuis Connect - Intégration Home Assistant
 
-Cette intégration personnalisée permet de contrôler vos radiateurs Muller Intuis Connect via Home Assistant. Elle s'appuie sur l'API Netatmo Energy.
+Cette intégration personnalisée permet de contrôler vos radiateurs **Muller Intuis Connect** via Home Assistant. Elle utilise l'API Netatmo Energy (backend de Muller Intuitiv).
 
-## Fonctionnalités
+## 🔑 Prérequis - Obtenir les identifiants
 
-### ✅ Entités Climate
-- **Contrôle individuel** de chaque radiateur
-- **Modes supportés** : Auto (schedule), Heat (manuel), Off
-- **Presets** : Schedule, Away, Frost Protection (Hors-gel), Manual
-- **Température** : Consultation et modification de la consigne
+### Étape 1 : Créer une application sur le portail développeur Netatmo
 
-### ✅ Capteurs
-- **Température actuelle** de chaque pièce
-- **Puissance de chauffe** (en Watts)
-- **Consommation énergétique** journalière (en kWh)
-- **Planning actif**
-- **État de chaque planning** avec attributs complets (timetable, zones, etc.)
+1. Allez sur [https://dev.netatmo.com/](https://dev.netatmo.com/)
+2. Connectez-vous avec vos identifiants Muller Intuitiv (email/mot de passe)
+3. Cliquez sur **"Create"** pour créer une nouvelle application
+4. Remplissez les informations :
+   - **App name** : Choisissez un nom (ex: "Home Assistant Muller")
+   - **Description** : Description de votre choix
+   - **Data protection officer** : Votre nom
+   - **Company name** : Votre nom ou entreprise
+   - **Company website** : Vous pouvez mettre `https://home-assistant.io`
+5. Cliquez sur **"Save"**
+6. Notez précieusement :
+   - **Client ID** : Chaîne alphanumérique
+   - **Client Secret** : Chaîne alphanumérique (cliquez sur l'œil pour révéler)
 
-### ✅ Sélecteur de Planning
-- Entité `select` pour **changer facilement le planning actif**
+### Étape 2 : Préparer vos identifiants
 
-### ✅ Services Personnalisés
+Vous aurez besoin de 4 informations pour configurer l'intégration :
 
-#### `muller_intuis.set_schedule`
-Change le planning actif
-```yaml
-service: muller_intuis.set_schedule
-data:
-  schedule_id: "1234567890"
-```
+| Paramètre | Description | Exemple |
+|-----------|-------------|---------|
+| **Client ID** | Obtenu sur dev.netatmo.com | `60xxxxxxxxxxxxxxxxxxxxx` |
+| **Client Secret** | Obtenu sur dev.netatmo.com | `Xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxv` |
+| **Username** | Votre email Muller Intuitiv | `votre.email@exemple.com` |
+| **Password** | Votre mot de passe Muller Intuitiv | `VotreMotDePasse` |
 
-#### `muller_intuis.sync_schedule`
-Met à jour un planning existant
-```yaml
-service: muller_intuis.sync_schedule
-data:
-  schedule_id: "1234567890"
-  name: "Mon planning modifié"
-  timetable:
-    - m_offset: 0
-      zone_id: 0
-    - m_offset: 420
-      zone_id: 1
-  zones:
-    - id: 0
-      name: "Confort"
-      rooms_temp:
-        - room_id: "123456"
-          temp: 20.5
-```
+⚠️ **Important** : Utilisez les mêmes identifiants (email/mot de passe) que vous utilisez pour vous connecter à l'application mobile Muller Intuitiv.
 
-#### `muller_intuis.create_schedule`
-Crée un nouveau planning
-```yaml
-service: muller_intuis.create_schedule
-data:
-  name: "Planning vacances"
-  timetable: [...]
-  zones: [...]
-```
+## 📥 Installation
 
-#### `muller_intuis.delete_schedule`
-Supprime un planning
-```yaml
-service: muller_intuis.delete_schedule
-data:
-  schedule_id: "1234567890"
-```
+### Méthode 1 : Via HACS (Recommandé)
 
-#### `muller_intuis.rename_schedule`
-Renomme un planning
-```yaml
-service: muller_intuis.rename_schedule
-data:
-  schedule_id: "1234567890"
-  name: "Nouveau nom"
-```
+1. Ouvrez **HACS** dans Home Assistant
+2. Cliquez sur **"Intégrations"**
+3. Cliquez sur le menu **⋮** (3 points) en haut à droite
+4. Sélectionnez **"Dépôts personnalisés"**
+5. Ajoutez l'URL : `https://github.com/TheFab21/muller-intuis`
+6. Sélectionnez la catégorie : **"Integration"**
+7. Cliquez sur **"Ajouter"**
+8. Recherchez **"Muller Intuis Connect"** dans HACS
+9. Cliquez sur **"Télécharger"**
+10. **Redémarrez Home Assistant**
 
-#### `muller_intuis.set_room_thermpoint`
-Définit la température d'une pièce
-```yaml
-service: muller_intuis.set_room_thermpoint
-data:
-  room_id: "1234567890"
-  mode: "manual"
-  temp: 21.5
-```
+### Méthode 2 : Installation manuelle
 
-#### `muller_intuis.set_home_mode`
-Définit le mode global de la maison
-```yaml
-service: muller_intuis.set_home_mode
-data:
-  mode: "schedule"
-  schedule_id: "1234567890"  # optionnel
-```
+1. Téléchargez le dossier `custom_components/muller_intuis`
+2. Copiez-le dans le dossier `custom_components` de votre Home Assistant
+3. Votre structure doit ressembler à :
+   ```
+   config/
+   └── custom_components/
+       └── muller_intuis/
+           ├── __init__.py
+           ├── config_flow.py
+           ├── const.py
+           ├── manifest.json
+           ├── strings.json
+           ├── climate.py
+           ├── sensor.py
+           └── select.py
+   ```
+4. **Redémarrez Home Assistant**
 
-## Installation
+## ⚙️ Configuration
 
-### Via HACS (recommandé)
+### Ajouter l'intégration
 
-1. Ouvrez HACS dans Home Assistant
-2. Cliquez sur "Intégrations"
-3. Cliquez sur le menu (3 points) en haut à droite
-4. Sélectionnez "Dépôts personnalisés"
-5. Ajoutez l'URL de ce repository
-6. Installez l'intégration "Muller Intuis Connect"
-7. Redémarrez Home Assistant
-
-### Installation manuelle
-
-1. Copiez le dossier `muller_intuis` dans `custom_components/`
-2. Redémarrez Home Assistant
-
-## Configuration
-
-### Prérequis : Obtenir les identifiants OAuth
-
-1. Créez une application sur le [portail développeur Netatmo](https://dev.netatmo.com/)
-2. Notez votre `Client ID` et `Client Secret`
-3. Pour obtenir votre `refresh_token`, suivez [ce guide](https://dev.netatmo.com/apidocumentation/oauth)
-
-### Configuration dans Home Assistant
-
-1. Allez dans **Configuration** → **Intégrations**
+1. Allez dans **Paramètres** → **Appareils et services**
 2. Cliquez sur **+ Ajouter une intégration**
-3. Recherchez **Muller Intuis Connect**
-4. Entrez vos identifiants :
-   - Client ID
-   - Client Secret
-   - Refresh Token
-   - Home ID (optionnel, sera détecté automatiquement)
+3. Recherchez **"Muller Intuis Connect"**
+4. Entrez vos 4 identifiants :
+   - **Client ID** (de dev.netatmo.com)
+   - **Client Secret** (de dev.netatmo.com)
+   - **Username** (votre email Muller)
+   - **Password** (votre mot de passe Muller)
+5. Cliquez sur **"Soumettre"**
 
-## Interface Lovelace pour la gestion des plannings
+L'intégration va :
+- ✅ Se connecter à l'API Muller Intuitiv
+- ✅ Récupérer automatiquement votre `home_id`
+- ✅ Créer toutes les entités pour vos radiateurs
 
-Vous pouvez créer une interface graphique pour éditer vos plannings directement dans Home Assistant. Voici un exemple de carte personnalisée :
+## 🎛️ Entités créées
 
-### Carte basique
+Pour chaque radiateur/pièce, l'intégration crée :
+
+### Climate (Thermostat)
+- **Entité** : `climate.muller_[nom_piece]`
+- **Modes HVAC** :
+  - `auto` : Mode planning (suit le planning actif)
+  - `heat` : Mode manuel (température fixe)
+  - `off` : Hors-gel
+- **Presets** :
+  - `Schedule` : Suit le planning
+  - `Manual` : Température manuelle
+  - `Away` : Mode absent
+  - `Frost Protection` : Hors-gel
+
+### Sensors
+- **Température actuelle** : `sensor.muller_[nom_piece]_temperature`
+- **Puissance de chauffe** : `sensor.muller_[nom_piece]_heating_power_request`
+- **Consommation journalière** : `sensor.muller_[nom_piece]_daily_energy`
+
+### Select
+- **Planning actif** : `select.muller_intuis_active_schedule`
+  - Permet de changer facilement le planning actif
+  - Liste tous les plannings disponibles
+
+## 🔧 Utilisation
+
+### Contrôler la température d'une pièce
+
+```yaml
+service: climate.set_temperature
+target:
+  entity_id: climate.muller_salon
+data:
+  temperature: 21
+```
+
+### Changer le mode HVAC
+
+```yaml
+service: climate.set_hvac_mode
+target:
+  entity_id: climate.muller_salon
+data:
+  hvac_mode: heat  # ou auto, off
+```
+
+### Changer de planning
+
+Via l'entité select :
+```yaml
+service: select.select_option
+target:
+  entity_id: select.muller_intuis_active_schedule
+data:
+  option: "Planning Jour"
+```
+
+## 🐛 Dépannage
+
+### L'authentification échoue
+
+1. **Vérifiez vos identifiants** :
+   - Client ID et Client Secret doivent venir de [dev.netatmo.com](https://dev.netatmo.com)
+   - Username et Password sont ceux de l'app Muller Intuitiv
+2. **Testez vos identifiants** dans l'application mobile Muller Intuitiv
+3. **Vérifiez les logs** : Paramètres → Système → Journaux
+
+### Erreur "No homes found"
+
+L'API ne trouve pas de maison associée à votre compte. Vérifiez que :
+- Vous avez bien des radiateurs configurés dans l'app Muller Intuitiv
+- Vous utilisez les bons identifiants
+
+### Les températures ne se mettent pas à jour
+
+- L'intégration rafraîchit les données toutes les **5 minutes**
+- Vous pouvez forcer une mise à jour via le service `homeassistant.update_entity`
+
+### Erreur 401 (Authentication failed)
+
+Le token a expiré. L'intégration le renouvelle automatiquement, mais si l'erreur persiste :
+1. Supprimez l'intégration
+2. Recréez-la avec vos identifiants
+
+## 📊 Exemple de carte Lovelace
 
 ```yaml
 type: vertical-stack
 cards:
   - type: entities
-    title: Contrôle des chauffages
+    title: Contrôle Chauffage
     entities:
       - entity: select.muller_intuis_active_schedule
         name: Planning actif
-      - entity: sensor.muller_intuis_active_schedule
-        name: Détails du planning
-
-  - type: horizontal-stack
-    cards:
-      - type: button
-        name: Mode Schedule
-        tap_action:
-          action: call-service
-          service: muller_intuis.set_home_mode
-          service_data:
-            mode: schedule
-      - type: button
-        name: Mode Absent
-        tap_action:
-          action: call-service
-          service: muller_intuis.set_home_mode
-          service_data:
-            mode: away
-      - type: button
-        name: Hors-gel
-        tap_action:
-          action: call-service
-          service: muller_intuis.set_home_mode
-          service_data:
-            mode: hg
+      - entity: climate.muller_salon
+        name: Salon
+      - entity: climate.muller_chambre
+        name: Chambre
+  
+  - type: thermostat
+    entity: climate.muller_salon
+    name: Salon
 ```
 
-### Interface avancée avec page HTML personnalisée
+## 🔄 Automatisations
 
-Pour reproduire l'interface de votre flow Node-RED, créez un fichier `www/muller_planning.html` dans votre configuration Home Assistant :
-
-1. Créez le dossier `www` s'il n'existe pas
-2. Copiez le fichier HTML fourni dans `www/muller_planning.html`
-3. Modifiez les topics MQTT si nécessaire
-4. Ajoutez une carte `iframe` dans Lovelace :
-
-```yaml
-type: iframe
-url: /local/muller_planning.html
-aspect_ratio: 75%
-```
-
-## Automatisations
-
-### Changer de planning selon le moment de la journée
+### Changer de planning selon l'heure
 
 ```yaml
 automation:
-  - alias: "Chauffage - Planning jour"
+  - alias: "Chauffage - Planning Jour"
     trigger:
       - platform: time
         at: "07:00:00"
     action:
-      - service: muller_intuis.set_schedule
+      - service: select.select_option
+        target:
+          entity_id: select.muller_intuis_active_schedule
         data:
-          schedule_id: "id_planning_jour"
+          option: "Planning Jour"
 
-  - alias: "Chauffage - Planning nuit"
+  - alias: "Chauffage - Planning Nuit"
     trigger:
       - platform: time
         at: "22:00:00"
     action:
-      - service: muller_intuis.set_schedule
+      - service: select.select_option
+        target:
+          entity_id: select.muller_intuis_active_schedule
         data:
-          schedule_id: "id_planning_nuit"
+          option: "Planning Nuit"
 ```
 
-### Mode absent lors de l'absence
+### Mode absent automatique
 
 ```yaml
 automation:
@@ -226,45 +234,37 @@ automation:
         for:
           hours: 1
     action:
-      - service: muller_intuis.set_home_mode
+      - service: climate.set_preset_mode
+        target:
+          entity_id: 
+            - climate.muller_salon
+            - climate.muller_chambre
         data:
-          mode: away
+          preset_mode: "away"
 ```
 
-## Dépannage
+## 📝 Notes techniques
 
-### Les tokens expirent régulièrement
-- L'intégration rafraîchit automatiquement les tokens
-- Si le problème persiste, reconfigurer l'intégration
+- **API utilisée** : Netatmo Energy API (backend Muller Intuitiv)
+- **Endpoint OAuth2** : `https://app.muller-intuitiv.net/oauth2/token`
+- **Grant type** : `password` (Resource Owner Password Credentials)
+- **Scopes** : `read_muller write_muller`
+- **User prefix** : `muller`
+- **Rafraîchissement token** : Automatique, 5 minutes avant expiration
+- **Intervalle de mise à jour** : 5 minutes
 
-### Les données ne se mettent pas à jour
-- Vérifiez les logs : **Configuration** → **Logs**
-- L'intervalle de mise à jour par défaut est de 5 minutes
-- Vous pouvez forcer une mise à jour via le service `homeassistant.update_entity`
+## 🤝 Contribution
 
-### Erreur d'authentification
-- Vérifiez que votre `Client ID` et `Client Secret` sont corrects
-- Assurez-vous que votre `refresh_token` est valide
-- Regénérez un nouveau refresh token si nécessaire
+Les contributions sont les bienvenues ! N'hésitez pas à :
+- Ouvrir une issue pour signaler un bug
+- Proposer une pull request pour ajouter des fonctionnalités
+- Améliorer la documentation
 
-## Migration depuis Node-RED
-
-Si vous utilisez actuellement Node-RED :
-
-1. **Notez vos room_id et schedule_id** depuis vos flows
-2. **Installez l'intégration** comme décrit ci-dessus
-3. **Recréez vos automatisations** avec les services Home Assistant
-4. **Pour MQTT** : vous pouvez continuer à l'utiliser en parallèle ou migrer entièrement vers les services
-
-## Contribuer
-
-Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou une pull request.
-
-## Licence
+## 📜 Licence
 
 MIT License
 
-## Crédits
+## 🙏 Remerciements
 
-Développé pour l'intégration des radiateurs Muller Intuis Connect dans Home Assistant.
-Basé sur l'API Netatmo Energy.
+- Basé sur l'API Netatmo Energy
+- Inspiré du travail de la communauté Home Assistant
