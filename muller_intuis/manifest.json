@@ -1,0 +1,12 @@
+{
+  "domain": "muller_intuis",
+  "name": "Muller Intuis Connect",
+  "codeowners": ["@yannv"],
+  "config_flow": true,
+  "documentation": "https://github.com/yourusername/muller_intuis",
+  "requirements": ["aiohttp>=3.8.0"],
+  "iot_class": "cloud_polling",
+  "version": "1.0.0",
+  "dependencies": [],
+  "after_dependencies": ["mqtt"]
+}
