@@ -1,12 +1,13 @@
 """The Muller Intuis Connect integration."""
 from __future__ import annotations
 
-from datetime import timedelta
+import asyncio
 import logging
+import time
+from datetime import timedelta
 from typing import Any
 
 import aiohttp
-import async_timeout
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -122,33 +123,33 @@ class MullerIntuisApiClient:
         }
 
         try:
-            async with async_timeout.timeout(30):
-                async with self.session.post(
-                    API_AUTH_URL,
-                    data=auth_data,
-                    headers=headers,
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        _LOGGER.error(
-                            "Token refresh failed: %s - %s", response.status, error_text
-                        )
-                        raise ConfigEntryAuthFailed("Token refresh failed")
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with self.session.post(
+                API_AUTH_URL,
+                data=auth_data,
+                headers=headers,
+                timeout=timeout,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    _LOGGER.error(
+                        "Token refresh failed: %s - %s", response.status, error_text
+                    )
+                    raise ConfigEntryAuthFailed("Token refresh failed")
 
-                    data = await response.json()
+                data = await response.json()
 
-                    if "access_token" not in data:
-                        raise ConfigEntryAuthFailed("No access_token in response")
+                if "access_token" not in data:
+                    raise ConfigEntryAuthFailed("No access_token in response")
 
-                    self._access_token = data["access_token"]
-                    self._refresh_token = data.get("refresh_token", self._refresh_token)
-                    
-                    # Calculate expiration time
-                    import time
-                    expires_in = data.get("expires_in", 10800)
-                    self._token_expires_at = time.time() + expires_in
+                self._access_token = data["access_token"]
+                self._refresh_token = data.get("refresh_token", self._refresh_token)
+                
+                # Calculate expiration time
+                expires_in = data.get("expires_in", 10800)
+                self._token_expires_at = time.time() + expires_in
 
-                    _LOGGER.debug("Token refreshed successfully, expires in %s seconds", expires_in)
+                _LOGGER.debug("Token refreshed successfully, expires in %s seconds", expires_in)
 
         except aiohttp.ClientError as err:
             _LOGGER.error("Connection error during token refresh: %s", err)
@@ -156,7 +157,6 @@ class MullerIntuisApiClient:
 
     async def _ensure_token_valid(self) -> None:
         """Ensure the access token is valid."""
-        import time
         
         # Refresh if token is not set or about to expire
         if (
@@ -177,13 +177,13 @@ class MullerIntuisApiClient:
         }
 
         try:
-            async with async_timeout.timeout(30):
-                if method == "GET":
-                    async with self.session.get(url, headers=headers, params=data) as response:
-                        return await self._handle_response(response)
-                else:
-                    async with self.session.post(url, headers=headers, data=data) as response:
-                        return await self._handle_response(response)
+            timeout = aiohttp.ClientTimeout(total=30)
+            if method == "GET":
+                async with self.session.get(url, headers=headers, params=data, timeout=timeout) as response:
+                    return await self._handle_response(response)
+            else:
+                async with self.session.post(url, headers=headers, data=data, timeout=timeout) as response:
+                    return await self._handle_response(response)
 
         except aiohttp.ClientError as err:
             _LOGGER.error("API request error: %s", err)
