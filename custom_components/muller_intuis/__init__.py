@@ -47,10 +47,14 @@ PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Muller Intuis Connect from a config entry."""
-    _LOGGER.info("Setting up Muller Intuis Connect integration")
+    _LOGGER.warning("=" * 80)
+    _LOGGER.warning("MULLER INTUIS: Starting setup")
+    _LOGGER.warning("=" * 80)
+    
     hass.data.setdefault(DOMAIN, {})
 
     try:
+        _LOGGER.warning("Creating API client...")
         api_client = MullerIntuisApiClient(
             hass,
             entry.data[CONF_CLIENT_ID],
@@ -61,21 +65,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.data.get("refresh_token_value"),
         )
 
+        _LOGGER.warning("Creating coordinator...")
         coordinator = MullerIntuisDataUpdateCoordinator(hass, api_client)
+        
+        _LOGGER.warning("Fetching initial data...")
         await coordinator.async_config_entry_first_refresh()
+        
+        _LOGGER.warning("Coordinator data: home_id=%s, home_name=%s", 
+                       coordinator.home_id, coordinator.home_name)
 
         hass.data[DOMAIN][entry.entry_id] = {
             "coordinator": coordinator,
             "api_client": api_client,
         }
 
+        _LOGGER.warning("Setting up platforms: %s", PLATFORMS)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        _LOGGER.info("Muller Intuis Connect setup completed successfully")
+        
+        _LOGGER.warning("=" * 80)
+        _LOGGER.warning("MULLER INTUIS: Setup completed successfully")
+        _LOGGER.warning("=" * 80)
 
         return True
     
     except Exception as err:
-        _LOGGER.exception("Error setting up Muller Intuis Connect: %s", err)
+        _LOGGER.exception("ERROR setting up Muller Intuis Connect: %s", err)
         raise
 
 
@@ -250,10 +264,8 @@ class MullerIntuisApiClient:
             
         if duration is not None:
             if duration == 0:
-                # Indefinite: set to 0 or past timestamp
                 room_data["therm_setpoint_end_time"] = 0
             else:
-                # Specific duration: current timestamp + duration in seconds
                 end_time = int(time.time()) + (duration * 60)
                 room_data["therm_setpoint_end_time"] = end_time
         
@@ -322,8 +334,8 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via library."""
         try:
-            # Get homes data on first run
             if not self.home_id:
+                _LOGGER.warning("Fetching homes data...")
                 homes_response = await self.api_client.get_homes_data()
                 homes = homes_response.get("body", {}).get("homes", [])
                 
@@ -333,13 +345,13 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
                 self.home_id = homes[0]["id"]
                 self.home_name = homes[0].get("name", "Domicile")
                 self.homes_data = homes[0]
-                _LOGGER.info("Using home: %s (ID: %s)", self.home_name, self.home_id)
+                _LOGGER.warning("Using home: %s (ID: %s)", self.home_name, self.home_id)
+                _LOGGER.warning("Found %d rooms", len(self.homes_data.get("rooms", [])))
 
-            # Get home status (real-time data)
+            _LOGGER.debug("Fetching home status...")
             status_data = await self.api_client.get_home_status(self.home_id)
             status = status_data.get("body", {}).get("home", {})
             
-            # Add static data
             status["rooms_info"] = self.homes_data.get("rooms", [])
             status["schedules"] = self.homes_data.get("schedules", [])
             status["home_name"] = self.home_name
