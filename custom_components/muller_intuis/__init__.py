@@ -19,6 +19,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -47,14 +48,10 @@ PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Muller Intuis Connect from a config entry."""
-    _LOGGER.warning("=" * 80)
-    _LOGGER.warning("MULLER INTUIS: Starting setup")
-    _LOGGER.warning("=" * 80)
-    
+    _LOGGER.info("Setting up Muller Intuis Connect integration")
     hass.data.setdefault(DOMAIN, {})
 
     try:
-        _LOGGER.warning("Creating API client...")
         api_client = MullerIntuisApiClient(
             hass,
             entry.data[CONF_CLIENT_ID],
@@ -65,31 +62,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.data.get("refresh_token_value"),
         )
 
-        _LOGGER.warning("Creating coordinator...")
         coordinator = MullerIntuisDataUpdateCoordinator(hass, api_client)
-        
-        _LOGGER.warning("Fetching initial data...")
         await coordinator.async_config_entry_first_refresh()
-        
-        _LOGGER.warning("Coordinator data: home_id=%s, home_name=%s", 
-                       coordinator.home_id, coordinator.home_name)
+
+        # Create the home device FIRST to avoid via_device warning
+        device_registry = dr.async_get(hass)
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, f"{coordinator.home_id}_home")},
+            name="Système de chauffage",
+            manufacturer="Muller Intuitiv",
+            model="Contrôle central",
+        )
+        _LOGGER.info("Created home device: %s", coordinator.home_name)
 
         hass.data[DOMAIN][entry.entry_id] = {
             "coordinator": coordinator,
             "api_client": api_client,
         }
 
-        _LOGGER.warning("Setting up platforms: %s", PLATFORMS)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        
-        _LOGGER.warning("=" * 80)
-        _LOGGER.warning("MULLER INTUIS: Setup completed successfully")
-        _LOGGER.warning("=" * 80)
+        _LOGGER.info("Muller Intuis Connect setup completed")
 
         return True
     
     except Exception as err:
-        _LOGGER.exception("ERROR setting up Muller Intuis Connect: %s", err)
+        _LOGGER.exception("Error setting up Muller Intuis Connect: %s", err)
         raise
 
 
@@ -335,7 +333,6 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
         """Update data via library."""
         try:
             if not self.home_id:
-                _LOGGER.warning("Fetching homes data...")
                 homes_response = await self.api_client.get_homes_data()
                 homes = homes_response.get("body", {}).get("homes", [])
                 
@@ -345,10 +342,9 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
                 self.home_id = homes[0]["id"]
                 self.home_name = homes[0].get("name", "Domicile")
                 self.homes_data = homes[0]
-                _LOGGER.warning("Using home: %s (ID: %s)", self.home_name, self.home_id)
-                _LOGGER.warning("Found %d rooms", len(self.homes_data.get("rooms", [])))
+                _LOGGER.info("Using home: %s (ID: %s) with %d rooms", 
+                            self.home_name, self.home_id, len(self.homes_data.get("rooms", [])))
 
-            _LOGGER.debug("Fetching home status...")
             status_data = await self.api_client.get_home_status(self.home_id)
             status = status_data.get("body", {}).get("home", {})
             

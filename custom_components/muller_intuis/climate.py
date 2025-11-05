@@ -53,8 +53,6 @@ async def async_setup_entry(
     # Add home climate entity FIRST
     home_entity = MullerIntuisHomeClimate(coordinator, api_client)
     entities.append(home_entity)
-    _LOGGER.warning("ADDED HOME CLIMATE: %s with unique_id=%s", 
-                    home_entity.name, home_entity.unique_id)
     
     # Add room climate entities
     for room_status in rooms_status:
@@ -63,11 +61,9 @@ async def async_setup_entry(
         room_data = {**room_info, **room_status}
         room_entity = MullerIntuisRoomClimate(coordinator, api_client, room_data)
         entities.append(room_entity)
-        _LOGGER.debug("Added room climate: %s", room_entity.name)
     
     async_add_entities(entities)
-    _LOGGER.warning("Climate setup completed: %d total entities (1 home + %d rooms)", 
-                   len(entities), len(rooms_status))
+    _LOGGER.info("Climate setup: 1 home + %d rooms = %d entities", len(rooms_status), len(entities))
 
 
 class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
@@ -75,7 +71,7 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
 
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_hvac_modes = [HVACMode.AUTO, HVACMode.OFF]
+    _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
     _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, "frost_protection"]
 
     def __init__(self, coordinator, api_client) -> None:
@@ -86,9 +82,6 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         self._home_name = coordinator.home_name
         self._attr_unique_id = f"{self._home_id}_home_climate"
         self._attr_name = self._home_name
-        
-        _LOGGER.warning("INITIALIZING HOME CLIMATE: name=%s, unique_id=%s, home_id=%s", 
-                       self._attr_name, self._attr_unique_id, self._home_id)
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
@@ -98,14 +91,12 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
     @property
     def device_info(self):
         """Return device info for home."""
-        device = {
+        return {
             "identifiers": {(DOMAIN, f"{self._home_id}_home")},
             "name": "Système de chauffage",
             "manufacturer": "Muller Intuitiv",
             "model": "Contrôle central",
         }
-        _LOGGER.debug("HOME CLIMATE device_info: %s", device)
-        return device
 
     @property
     def available(self) -> bool:
@@ -118,10 +109,13 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         status = self.coordinator.data.get("status", {})
         therm_mode = status.get("therm_mode")
         
-        if therm_mode in [MODE_SCHEDULE, MODE_AWAY]:
-            return HVACMode.AUTO
+        # Map API modes to HVAC modes
+        if therm_mode == MODE_SCHEDULE:
+            return HVACMode.AUTO  # Schedule = Auto
+        elif therm_mode == MODE_AWAY:
+            return HVACMode.HEAT  # Away = Heat (temporary mode)
         elif therm_mode == MODE_HOME_HG:
-            return HVACMode.OFF
+            return HVACMode.OFF  # Frost protection = Off
         return HVACMode.AUTO
 
     @property
@@ -131,11 +125,11 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         therm_mode = status.get("therm_mode")
         
         if therm_mode == MODE_SCHEDULE:
-            return PRESET_HOME
+            return PRESET_HOME  # "schedule"
         elif therm_mode == MODE_AWAY:
-            return PRESET_AWAY
+            return PRESET_AWAY  # "away"
         elif therm_mode == MODE_HOME_HG:
-            return "frost_protection"
+            return "frost_protection"  # "hg"
         
         return PRESET_HOME
 
@@ -145,9 +139,14 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         
         try:
             if hvac_mode == HVACMode.AUTO:
+                # Auto = Schedule mode
                 await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+            elif hvac_mode == HVACMode.HEAT:
+                # Heat = Away mode
+                await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
             elif hvac_mode == HVACMode.OFF:
-                await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG)
+                # Off = Frost protection
+                await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
             
             await self.coordinator.async_request_refresh()
         except Exception as err:
@@ -160,10 +159,13 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         
         try:
             if preset_mode == PRESET_HOME:
+                # "schedule"
                 await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
             elif preset_mode == PRESET_AWAY:
+                # "away"
                 await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
             elif preset_mode == "frost_protection":
+                # "hg"
                 await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
             
             await self.coordinator.async_request_refresh()
@@ -284,8 +286,7 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
         if temperature is None:
             return
         
-        _LOGGER.info("Setting temperature to %s°C for %s (manual, %dm)", 
-                    temperature, self._room_name, DEFAULT_MANUAL_DURATION)
+        _LOGGER.info("Setting temperature to %s°C for %s", temperature, self._room_name)
         
         try:
             await self.api_client.set_room_state(
