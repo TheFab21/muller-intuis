@@ -31,6 +31,7 @@ from .const import (
     API_HOMESTATUS_URL,
     API_SETSTATE_URL,
     API_SETTHERMMODE_URL,
+    API_SWITCHHOMESCHEDULE_URL,
     DOMAIN,
     OAUTH_GRANT_TYPE,
     OAUTH_SCOPE,
@@ -41,7 +42,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.SELECT]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -50,7 +51,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     try:
-        # Create API client
         api_client = MullerIntuisApiClient(
             hass,
             entry.data[CONF_CLIENT_ID],
@@ -61,10 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.data.get("refresh_token_value"),
         )
 
-        # Create coordinator
         coordinator = MullerIntuisDataUpdateCoordinator(hass, api_client)
-
-        # Fetch initial data
         await coordinator.async_config_entry_first_refresh()
 
         hass.data[DOMAIN][entry.entry_id] = {
@@ -72,7 +69,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "api_client": api_client,
         }
 
-        # Setup platforms
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         _LOGGER.info("Muller Intuis Connect setup completed successfully")
 
@@ -152,7 +148,6 @@ class MullerIntuisApiClient:
                 self._access_token = data["access_token"]
                 self._refresh_token_value = data.get("refresh_token", self._refresh_token_value)
                 
-                # Calculate expiration time
                 expires_in = data.get("expires_in", 10800)
                 self._token_expires_at = time.time() + expires_in
 
@@ -164,8 +159,6 @@ class MullerIntuisApiClient:
 
     async def _ensure_token_valid(self) -> None:
         """Ensure the access token is valid."""
-        
-        # Refresh if token is not set or about to expire
         if (
             not self._access_token
             or time.time() >= (self._token_expires_at - TOKEN_REFRESH_MARGIN_SECONDS)
@@ -182,7 +175,6 @@ class MullerIntuisApiClient:
             "Authorization": f"Bearer {self._access_token}",
         }
         
-        # Determine if we need JSON or form-urlencoded
         if method == "POST_JSON":
             headers["Content-Type"] = "application/json"
             method = "POST"
@@ -197,7 +189,6 @@ class MullerIntuisApiClient:
                 async with self.session.get(url, headers=headers, params=data, timeout=timeout) as response:
                     return await self._handle_response(response)
             else:
-                # POST request
                 if headers["Content-Type"] == "application/json":
                     async with self.session.post(url, headers=headers, json=request_data, timeout=timeout) as response:
                         return await self._handle_response(response)
@@ -212,7 +203,6 @@ class MullerIntuisApiClient:
     async def _handle_response(self, response: aiohttp.ClientResponse) -> dict[str, Any]:
         """Handle API response."""
         if response.status == 401:
-            # Token expired
             self._access_token = None
             raise ConfigEntryAuthFailed("Authentication failed")
 
@@ -259,9 +249,13 @@ class MullerIntuisApiClient:
             room_data["therm_setpoint_temperature"] = temp
             
         if duration is not None:
-            # Calculate end time (current timestamp + duration in seconds)
-            end_time = int(time.time()) + (duration * 60)
-            room_data["therm_setpoint_end_time"] = end_time
+            if duration == 0:
+                # Indefinite: set to 0 or past timestamp
+                room_data["therm_setpoint_end_time"] = 0
+            else:
+                # Specific duration: current timestamp + duration in seconds
+                end_time = int(time.time()) + (duration * 60)
+                room_data["therm_setpoint_end_time"] = end_time
         
         payload = {
             "home": {
@@ -273,23 +267,35 @@ class MullerIntuisApiClient:
         return await self._api_request(API_SETSTATE_URL, data=payload, method="POST_JSON")
 
     async def set_therm_mode(
-        self, home_id: str, mode: str, schedule_id: str | None = None, end_time: int | None = None
+        self, home_id: str, mode: str, end_time: int | None = None
     ) -> dict[str, Any]:
         """Set home thermostat mode."""
-        _LOGGER.debug("Setting therm mode: home=%s, mode=%s, schedule=%s", home_id, mode, schedule_id)
+        _LOGGER.debug("Setting home therm mode: home=%s, mode=%s, endtime=%s", home_id, mode, end_time)
         
         data = {
             "home_id": home_id,
             "mode": mode,
         }
         
-        if schedule_id:
-            data["schedule_id"] = schedule_id
-            
         if end_time is not None:
             data["endtime"] = end_time
 
         return await self._api_request(API_SETTHERMMODE_URL, data=data)
+
+    async def switch_home_schedule(
+        self, home_id: str, schedule_id: str
+    ) -> dict[str, Any]:
+        """Switch the active home schedule."""
+        _LOGGER.debug("Switching home schedule: home=%s, schedule=%s", home_id, schedule_id)
+        
+        payload = {
+            "app_identifier": "app_muller",
+            "home_id": home_id,
+            "schedule_id": schedule_id,
+            "schedule_type": "therm"
+        }
+
+        return await self._api_request(API_SWITCHHOMESCHEDULE_URL, data=payload, method="POST_JSON")
 
 
 class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
@@ -303,6 +309,7 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize."""
         self.api_client = api_client
         self.home_id: str | None = None
+        self.home_name: str | None = None
         self.homes_data: dict[str, Any] = {}
 
         super().__init__(
@@ -315,7 +322,7 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via library."""
         try:
-            # Get homes data on first run to get home_id and static info
+            # Get homes data on first run
             if not self.home_id:
                 homes_response = await self.api_client.get_homes_data()
                 homes = homes_response.get("body", {}).get("homes", [])
@@ -323,23 +330,23 @@ class MullerIntuisDataUpdateCoordinator(DataUpdateCoordinator):
                 if not homes:
                     raise UpdateFailed("No homes found in account")
                 
-                # Use first home
                 self.home_id = homes[0]["id"]
+                self.home_name = homes[0].get("name", "Domicile")
                 self.homes_data = homes[0]
-                _LOGGER.info("Using home_id: %s (%s)", self.home_id, self.homes_data.get("name", "Unknown"))
+                _LOGGER.info("Using home: %s (ID: %s)", self.home_name, self.home_id)
 
             # Get home status (real-time data)
             status_data = await self.api_client.get_home_status(self.home_id)
-            
-            # Merge static data (rooms) with real-time status
             status = status_data.get("body", {}).get("home", {})
             
-            # Add rooms info from homes_data to status
+            # Add static data
             status["rooms_info"] = self.homes_data.get("rooms", [])
             status["schedules"] = self.homes_data.get("schedules", [])
+            status["home_name"] = self.home_name
             
             return {
                 "home_id": self.home_id,
+                "home_name": self.home_name,
                 "status": status,
                 "homes_data": self.homes_data,
             }

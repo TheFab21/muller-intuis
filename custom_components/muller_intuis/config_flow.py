@@ -9,7 +9,6 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -28,9 +27,9 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 
 async def validate_auth(
-    hass: HomeAssistant, client_id: str, client_secret: str, username: str, password: str
+    hass, client_id: str, client_secret: str, username: str, password: str
 ) -> dict[str, Any]:
-    """Validate the user input allows us to connect."""
+    """Validate the user input."""
     session = async_get_clientsession(hass)
 
     auth_data = {
@@ -43,9 +42,7 @@ async def validate_auth(
         "scope": "read_muller write_muller",
     }
 
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     try:
         async with session.post(
@@ -55,15 +52,11 @@ async def validate_auth(
             timeout=aiohttp.ClientTimeout(total=30),
         ) as response:
             if response.status != 200:
-                error_text = await response.text()
-                _LOGGER.error("Authentication failed: %s - %s", response.status, error_text)
-                raise InvalidAuth(f"Authentication failed with status {response.status}")
+                raise InvalidAuth
 
             data = await response.json()
-
             if "access_token" not in data:
-                _LOGGER.error("No access_token in response: %s", data)
-                raise InvalidAuth("No access_token in response")
+                raise InvalidAuth
 
             return {
                 "access_token": data["access_token"],
@@ -71,22 +64,16 @@ async def validate_auth(
                 "expires_in": data.get("expires_in", 10800),
             }
 
-    except aiohttp.ClientError as err:
-        _LOGGER.error("Connection error during authentication: %s", err)
-        raise CannotConnect from err
-    except Exception as err:
-        _LOGGER.error("Unexpected error during authentication: %s", err)
-        raise InvalidAuth from err
+    except aiohttp.ClientError:
+        raise CannotConnect
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Muller Intuis Connect."""
+    """Handle a config flow."""
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
@@ -103,19 +90,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
                 self._abort_if_unique_id_configured()
 
-                data = {
-                    CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
-                    CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
-                    CONF_USERNAME: user_input[CONF_USERNAME],
-                    CONF_PASSWORD: user_input[CONF_PASSWORD],
-                    "access_token": auth_info["access_token"],
-                    "refresh_token_value": auth_info["refresh_token"],
-                    "expires_in": auth_info["expires_in"],
-                }
-
                 return self.async_create_entry(
                     title=f"Muller Intuis ({user_input[CONF_USERNAME]})",
-                    data=data,
+                    data={
+                        CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
+                        CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        "access_token": auth_info["access_token"],
+                        "refresh_token_value": auth_info["refresh_token"],
+                        "expires_in": auth_info["expires_in"],
+                    },
                 )
 
             except CannotConnect:

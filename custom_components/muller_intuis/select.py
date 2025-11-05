@@ -1,4 +1,4 @@
-"""Select platform for Muller Intuis Connect."""
+"""Select platform for Muller Intuis Connect - Schedule selection."""
 from __future__ import annotations
 
 import logging
@@ -24,38 +24,40 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     api_client = hass.data[DOMAIN][entry.entry_id]["api_client"]
     
-    # Check if we have schedules
     status = coordinator.data.get("status", {})
-    home = status.get("home", {})
-    schedules = home.get("schedules", [])
+    schedules = status.get("schedules", [])
     
-    if schedules:
+    # Filter only therm schedules
+    therm_schedules = [s for s in schedules if s.get("type") == "therm"]
+    
+    if therm_schedules:
         entities = [MullerIntuisScheduleSelect(coordinator, api_client)]
         async_add_entities(entities)
-        _LOGGER.info("Select platform setup completed with 1 entity (schedule selector)")
+        _LOGGER.info("Select platform setup completed with schedule selector")
     else:
-        _LOGGER.info("No schedules found, select platform setup completed with 0 entities")
+        _LOGGER.info("No schedules found, select platform setup skipped")
 
 
 class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
-    """Select entity for choosing the active schedule."""
+    """Select entity for choosing the active heating schedule."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Planning actif"
+    _attr_has_entity_name = False
 
     def __init__(self, coordinator, api_client) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
         self.api_client = api_client
         self._home_id = coordinator.home_id
-        self._attr_unique_id = f"{self._home_id}_active_schedule"
+        self._home_name = coordinator.home_name
+        self._attr_unique_id = f"{self._home_id}_schedule_select"
+        self._attr_name = f"Planning {self._home_name}"
 
     @property
     def device_info(self):
         """Return device info."""
         return {
             "identifiers": {(DOMAIN, self._home_id)},
-            "name": "Muller Intuis Connect",
+            "name": self._home_name,
             "manufacturer": "Muller Intuitiv",
             "model": "Système de chauffage",
         }
@@ -64,26 +66,28 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
     def options(self) -> list[str]:
         """Return available schedule options."""
         status = self.coordinator.data.get("status", {})
-        home = status.get("home", {})
-        schedules = home.get("schedules", [])
+        schedules = status.get("schedules", [])
         
-        return [schedule.get("name", f"Planning {schedule.get('id')}") for schedule in schedules]
+        # Only therm schedules
+        therm_schedules = [s for s in schedules if s.get("type") == "therm"]
+        
+        return [s.get("name", f"Planning {s.get('id')}") for s in therm_schedules]
 
     @property
     def current_option(self) -> str | None:
         """Return the currently selected schedule."""
         status = self.coordinator.data.get("status", {})
-        home = status.get("home", {})
-        schedules = home.get("schedules", [])
+        schedules = status.get("schedules", [])
         
-        # Find selected schedule
+        # Find selected therm schedule
         for schedule in schedules:
-            if schedule.get("selected", False):
+            if schedule.get("type") == "therm" and schedule.get("selected", False):
                 return schedule.get("name", f"Planning {schedule.get('id')}")
         
-        # If no schedule is selected, return first one
-        if schedules:
-            return schedules[0].get("name", f"Planning {schedules[0].get('id')}")
+        # If none selected, return first therm schedule
+        therm_schedules = [s for s in schedules if s.get("type") == "therm"]
+        if therm_schedules:
+            return therm_schedules[0].get("name", f"Planning {therm_schedules[0].get('id')}")
         
         return None
 
@@ -93,12 +97,11 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
         
         # Find schedule ID by name
         status = self.coordinator.data.get("status", {})
-        home = status.get("home", {})
-        schedules = home.get("schedules", [])
+        schedules = status.get("schedules", [])
         
         schedule_id = None
         for schedule in schedules:
-            if schedule.get("name") == option:
+            if schedule.get("type") == "therm" and schedule.get("name") == option:
                 schedule_id = schedule.get("id")
                 break
         
@@ -107,7 +110,7 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
             return
         
         try:
-            await self.api_client.set_therm_mode(self._home_id, "schedule", schedule_id)
+            await self.api_client.switch_home_schedule(self._home_id, schedule_id)
             await self.coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Error changing schedule: %s", err)

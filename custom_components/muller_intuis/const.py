@@ -12,6 +12,7 @@ API_HOMESDATA_URL = f"{API_BASE_URL}/api/homesdata"
 API_HOMESTATUS_URL = f"{API_BASE_URL}/api/homestatus"
 API_SETSTATE_URL = f"{API_BASE_URL}/syncapi/v1/setstate"
 API_SETTHERMMODE_URL = f"{API_BASE_URL}/api/setthermmode"
+API_SWITCHHOMESCHEDULE_URL = f"{API_BASE_URL}/api/switchhomeschedule"
 
 # OAuth2 parameters
 OAUTH_USER_PREFIX = "muller"
@@ -22,16 +23,16 @@ OAUTH_GRANT_TYPE = "password"
 SCAN_INTERVAL_SECONDS = 300  # 5 minutes
 TOKEN_REFRESH_MARGIN_SECONDS = 300  # 5 minutes before expiry
 
-# Modes for rooms
+# Modes for rooms (individual heaters)
 MODE_MANUAL = "manual"
 MODE_HOME = "home"  # Follow house schedule
 MODE_OFF = "off"    # Turn off this room
 MODE_HG = "hg"      # Frost protection for this room
 
-# Modes for home
-MODE_SCHEDULE = "schedule"
-MODE_AWAY = "away"
-MODE_HOME_HG = "hg"  # Frost protection for entire home
+# Modes for home (entire house)
+MODE_SCHEDULE = "schedule"  # Follow active schedule
+MODE_AWAY = "away"         # Away mode
+MODE_HOME_HG = "hg"        # Frost protection for entire home
 
 # HVAC modes mapping
 HVAC_MODE_MAP = {
@@ -58,3 +59,6 @@ ATTR_END_TIME = "endtime"
 # Default duration for manual mode (in minutes)
 DEFAULT_MANUAL_DURATION = 180  # 3 hours
 MAX_MANUAL_DURATION = 720  # 12 hours
+
+# For indefinite duration, set endtime to 0 or in the past
+INDEFINITE_END_TIME = 0

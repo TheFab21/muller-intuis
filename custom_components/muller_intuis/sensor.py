@@ -30,7 +30,6 @@ async def async_setup_entry(
     
     entities = []
     
-    # Get rooms
     status = coordinator.data.get("status", {})
     rooms_status = status.get("rooms", [])
     rooms_info = status.get("rooms_info", [])
@@ -56,13 +55,15 @@ class MullerIntuisSensorBase(CoordinatorEntity, SensorEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, room_data: dict[str, Any], sensor_type: str) -> None:
+    def __init__(self, coordinator, room_data: dict[str, Any], sensor_type: str, name_suffix: str) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._room_id = room_data["id"]
         self._room_name = room_data.get("name", "Unknown Room")
         self._sensor_type = sensor_type
         self._attr_unique_id = f"{self._room_id}_{sensor_type}"
+        self._attr_name = name_suffix
+        self._home_id = coordinator.home_id
 
     @property
     def device_info(self):
@@ -72,6 +73,7 @@ class MullerIntuisSensorBase(CoordinatorEntity, SensorEntity):
             "name": self._room_name,
             "manufacturer": "Muller Intuitiv",
             "model": "Radiateur connecté",
+            "via_device": (DOMAIN, self._home_id),
         }
 
     def _get_room_data(self) -> dict[str, Any] | None:
@@ -94,8 +96,7 @@ class MullerIntuisTemperatureSensor(MullerIntuisSensorBase):
 
     def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
         """Initialize the temperature sensor."""
-        super().__init__(coordinator, room_data, "temperature")
-        self._attr_name = "Température"
+        super().__init__(coordinator, room_data, "temperature", "Température")
 
     @property
     def native_value(self) -> float | None:
@@ -115,8 +116,7 @@ class MullerIntuisHeatingPowerSensor(MullerIntuisSensorBase):
 
     def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
         """Initialize the heating power sensor."""
-        super().__init__(coordinator, room_data, "heating_power")
-        self._attr_name = "Puissance de chauffe"
+        super().__init__(coordinator, room_data, "heating_power", "Puissance de chauffe")
 
     @property
     def native_value(self) -> int | None:
