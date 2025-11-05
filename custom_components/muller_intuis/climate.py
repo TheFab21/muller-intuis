@@ -50,11 +50,11 @@ async def async_setup_entry(
     
     rooms_map = {room["id"]: room for room in rooms_info}
     
-    # Add home climate entity (controls entire house)
+    # Add home climate entity
     entities.append(MullerIntuisHomeClimate(coordinator, api_client))
     _LOGGER.info("Added home climate entity: %s", coordinator.home_name)
     
-    # Add room climate entities (one per room)
+    # Add room climate entities
     for room_status in rooms_status:
         room_id = room_status.get("id")
         room_info = rooms_map.get(room_id, {})
@@ -62,7 +62,7 @@ async def async_setup_entry(
         entities.append(MullerIntuisRoomClimate(coordinator, api_client, room_data))
     
     async_add_entities(entities)
-    _LOGGER.info("Climate platform setup: 1 home + %d rooms = %d entities", len(rooms_status), len(entities))
+    _LOGGER.info("Climate setup: 1 home + %d rooms = %d entities", len(rooms_status), len(entities))
 
 
 class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
@@ -70,7 +70,6 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
 
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_supported_features = 0
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.OFF]
     _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, "frost_protection"]
 
@@ -86,11 +85,16 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         _LOGGER.info("Creating home climate: %s (ID: %s)", self._home_name, self._home_id)
 
     @property
+    def supported_features(self) -> ClimateEntityFeature:
+        """Return the list of supported features."""
+        return ClimateEntityFeature(0)
+
+    @property
     def device_info(self):
         """Return device info for home."""
         return {
             "identifiers": {(DOMAIN, f"{self._home_id}_home")},
-            "name": f"Système de chauffage",
+            "name": "Système de chauffage",
             "manufacturer": "Muller Intuitiv",
             "model": "Contrôle central",
         }
@@ -178,7 +182,6 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
 
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
     _attr_min_temp = 7
     _attr_max_temp = 30
@@ -193,6 +196,11 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"{self._room_id}_climate"
         self._attr_name = self._room_name
         self._home_id = coordinator.home_id
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        """Return the list of supported features."""
+        return ClimateEntityFeature.TARGET_TEMPERATURE
 
     @property
     def device_info(self):
