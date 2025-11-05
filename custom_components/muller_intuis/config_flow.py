@@ -17,7 +17,6 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Schéma de configuration
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_CLIENT_ID): str,
@@ -31,13 +30,9 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 async def validate_auth(
     hass: HomeAssistant, client_id: str, client_secret: str, username: str, password: str
 ) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
+    """Validate the user input allows us to connect."""
     session = async_get_clientsession(hass)
 
-    # Paramètres pour l'authentification OAuth2 Netatmo (Muller Intuitiv)
     auth_data = {
         "client_id": client_id,
         "client_secret": client_secret,
@@ -70,7 +65,6 @@ async def validate_auth(
                 _LOGGER.error("No access_token in response: %s", data)
                 raise InvalidAuth("No access_token in response")
 
-            # Retourner les tokens
             return {
                 "access_token": data["access_token"],
                 "refresh_token": data["refresh_token"],
@@ -98,7 +92,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                # Valider les credentials
                 auth_info = await validate_auth(
                     self.hass,
                     user_input[CONF_CLIENT_ID],
@@ -107,18 +100,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     user_input[CONF_PASSWORD],
                 )
 
-                # Créer un unique_id basé sur le username
                 await self.async_set_unique_id(user_input[CONF_USERNAME].lower())
                 self._abort_if_unique_id_configured()
 
-                # Stocker les tokens dans les données
                 data = {
                     CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
                     CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
                     CONF_USERNAME: user_input[CONF_USERNAME],
                     CONF_PASSWORD: user_input[CONF_PASSWORD],
                     "access_token": auth_info["access_token"],
-                    "refresh_token": auth_info["refresh_token"],
+                    "refresh_token_value": auth_info["refresh_token"],
                     "expires_in": auth_info["expires_in"],
                 }
 
@@ -131,10 +122,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
-            except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception in config flow: %s", err)
-                _LOGGER.error("Exception type: %s", type(err).__name__)
-                _LOGGER.error("Exception args: %s", err.args)
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
         return self.async_show_form(

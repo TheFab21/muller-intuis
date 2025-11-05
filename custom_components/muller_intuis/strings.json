@@ -3,22 +3,22 @@
     "step": {
       "user": {
         "title": "Configuration Muller Intuis Connect",
-        "description": "Entrez vos identifiants Netatmo/Muller Intuitiv",
+        "description": "Entrez vos identifiants",
         "data": {
           "client_id": "Client ID",
           "client_secret": "Client Secret",
-          "username": "Nom d'utilisateur (email)",
+          "username": "Email",
           "password": "Mot de passe"
         }
       }
     },
     "error": {
-      "cannot_connect": "Impossible de se connecter au serveur",
+      "cannot_connect": "Connexion impossible",
       "invalid_auth": "Identifiants invalides",
       "unknown": "Erreur inconnue"
     },
     "abort": {
-      "already_configured": "Ce compte est déjà configuré"
+      "already_configured": "Déjà configuré"
     }
   }
 }

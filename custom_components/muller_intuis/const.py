@@ -22,17 +22,23 @@ OAUTH_GRANT_TYPE = "password"
 SCAN_INTERVAL_SECONDS = 300  # 5 minutes
 TOKEN_REFRESH_MARGIN_SECONDS = 300  # 5 minutes before expiry
 
-# Modes
+# Modes for rooms
+MODE_MANUAL = "manual"
+MODE_HOME = "home"  # Follow house schedule
+MODE_OFF = "off"    # Turn off this room
+MODE_HG = "hg"      # Frost protection for this room
+
+# Modes for home
 MODE_SCHEDULE = "schedule"
 MODE_AWAY = "away"
-MODE_HG = "hg"  # Hors-gel / Frost protection
+MODE_HOME_HG = "hg"  # Frost protection for entire home
 
 # HVAC modes mapping
 HVAC_MODE_MAP = {
     MODE_SCHEDULE: "auto",
     MODE_AWAY: "eco",
-    MODE_HG: "off",
-    "manual": "heat",
+    MODE_HOME_HG: "off",
+    MODE_MANUAL: "heat",
 }
 
 # Preset modes
@@ -46,15 +52,9 @@ ATTR_ROOM_ID = "room_id"
 ATTR_SCHEDULE_ID = "schedule_id"
 ATTR_MODE = "mode"
 ATTR_TEMP = "temp"
-ATTR_TIMETABLE = "timetable"
-ATTR_ZONES = "zones"
-ATTR_NAME = "name"
+ATTR_DURATION = "duration"
+ATTR_END_TIME = "endtime"
 
-# Services
-SERVICE_SET_SCHEDULE = "set_schedule"
-SERVICE_SYNC_SCHEDULE = "sync_schedule"
-SERVICE_CREATE_SCHEDULE = "create_schedule"
-SERVICE_DELETE_SCHEDULE = "delete_schedule"
-SERVICE_RENAME_SCHEDULE = "rename_schedule"
-SERVICE_SET_ROOM_THERMPOINT = "set_room_thermpoint"
-SERVICE_SET_HOME_MODE = "set_home_mode"
+# Default duration for manual mode (in minutes)
+DEFAULT_MANUAL_DURATION = 180  # 3 hours
+MAX_MANUAL_DURATION = 720  # 12 hours

@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature, UnitOfPower, UnitOfEnergy
+from homeassistant.const import UnitOfTemperature, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -30,24 +30,22 @@ async def async_setup_entry(
     
     entities = []
     
-    # Get rooms from coordinator data
+    # Get rooms
     status = coordinator.data.get("status", {})
-    home = status.get("home", {})
-    rooms = home.get("rooms", [])
+    rooms_status = status.get("rooms", [])
+    rooms_info = status.get("rooms_info", [])
     
-    _LOGGER.info("Creating sensor entities for %d rooms", len(rooms))
+    rooms_map = {room["id"]: room for room in rooms_info}
     
-    for room in rooms:
+    for room_status in rooms_status:
+        room_id = room_status.get("id")
+        room_info = rooms_map.get(room_id, {})
+        room_data = {**room_info, **room_status}
+        
         # Temperature sensor
-        entities.append(MullerIntuisTemperatureSensor(coordinator, room))
+        entities.append(MullerIntuisTemperatureSensor(coordinator, room_data))
         # Heating power sensor
-        entities.append(MullerIntuisHeatingPowerSensor(coordinator, room))
-        # Window open sensor
-        entities.append(MullerIntuisWindowOpenSensor(coordinator, room))
-        # Anticipating sensor
-        entities.append(MullerIntuisAnticipat ingSensor(coordinator, room))
-        # Reachable sensor
-        entities.append(MullerIntuisReachableSensor(coordinator, room))
+        entities.append(MullerIntuisHeatingPowerSensor(coordinator, room_data))
         
     async_add_entities(entities)
     _LOGGER.info("Sensor platform setup completed with %d entities", len(entities))
@@ -79,8 +77,7 @@ class MullerIntuisSensorBase(CoordinatorEntity, SensorEntity):
     def _get_room_data(self) -> dict[str, Any] | None:
         """Get current room data from coordinator."""
         status = self.coordinator.data.get("status", {})
-        home = status.get("home", {})
-        rooms = home.get("rooms", [])
+        rooms = status.get("rooms", [])
         
         for room in rooms:
             if room.get("id") == self._room_id:
@@ -112,9 +109,9 @@ class MullerIntuisTemperatureSensor(MullerIntuisSensorBase):
 class MullerIntuisHeatingPowerSensor(MullerIntuisSensorBase):
     """Heating power sensor for Muller Intuis."""
 
-    _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:radiator"
 
     def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
         """Initialize the heating power sensor."""
@@ -123,102 +120,8 @@ class MullerIntuisHeatingPowerSensor(MullerIntuisSensorBase):
 
     @property
     def native_value(self) -> int | None:
-        """Return the heating power value."""
+        """Return the heating power value (percentage)."""
         room = self._get_room_data()
         if room:
-            # heating_power_request is a percentage, need to convert to watts
-            # Assuming average radiator power of 1500W
-            power_request = room.get("heating_power_request", 0)
-            if power_request is not None:
-                return int((power_request / 100) * 1500)
+            return room.get("heating_power_request", 0)
         return None
-
-
-class MullerIntuisWindowOpenSensor(MullerIntuisSensorBase):
-    """Window open sensor for Muller Intuis."""
-
-    _attr_device_class = None
-
-    def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
-        """Initialize the window open sensor."""
-        super().__init__(coordinator, room_data, "window_open")
-        self._attr_name = "Fenêtre ouverte"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the window open status."""
-        room = self._get_room_data()
-        if room:
-            open_window = room.get("open_window")
-            if open_window is True:
-                return "Ouverte"
-            elif open_window is False:
-                return "Fermée"
-        return "Inconnue"
-
-    @property
-    def icon(self) -> str:
-        """Return icon."""
-        room = self._get_room_data()
-        if room and room.get("open_window"):
-            return "mdi:window-open-variant"
-        return "mdi:window-closed-variant"
-
-
-class MullerIntuisAnticipat ingSensor(MullerIntuisSensorBase):
-    """Anticipating sensor for Muller Intuis."""
-
-    _attr_device_class = None
-
-    def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
-        """Initialize the anticipating sensor."""
-        super().__init__(coordinator, room_data, "anticipating")
-        self._attr_name = "Anticipation"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the anticipating status."""
-        room = self._get_room_data()
-        if room:
-            anticipating = room.get("anticipating")
-            if anticipating is True:
-                return "Actif"
-            elif anticipating is False:
-                return "Inactif"
-        return "Inconnu"
-
-    @property
-    def icon(self) -> str:
-        """Return icon."""
-        return "mdi:clock-fast"
-
-
-class MullerIntuisReachableSensor(MullerIntuisSensorBase):
-    """Reachable sensor for Muller Intuis."""
-
-    _attr_device_class = None
-
-    def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
-        """Initialize the reachable sensor."""
-        super().__init__(coordinator, room_data, "reachable")
-        self._attr_name = "Connecté"
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the reachable status."""
-        room = self._get_room_data()
-        if room:
-            reachable = room.get("reachable")
-            if reachable is True:
-                return "En ligne"
-            elif reachable is False:
-                return "Hors ligne"
-        return "Inconnu"
-
-    @property
-    def icon(self) -> str:
-        """Return icon."""
-        room = self._get_room_data()
-        if room and room.get("reachable"):
-            return "mdi:wifi"
-        return "mdi:wifi-off"
