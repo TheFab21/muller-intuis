@@ -52,6 +52,7 @@ async def async_setup_entry(
     
     # Add home climate entity (controls entire house)
     entities.append(MullerIntuisHomeClimate(coordinator, api_client))
+    _LOGGER.info("Added home climate entity: %s", coordinator.home_name)
     
     # Add room climate entities (one per room)
     for room_status in rooms_status:
@@ -61,7 +62,7 @@ async def async_setup_entry(
         entities.append(MullerIntuisRoomClimate(coordinator, api_client, room_data))
     
     async_add_entities(entities)
-    _LOGGER.info("Climate platform setup completed with %d entities", len(entities))
+    _LOGGER.info("Climate platform setup: 1 home + %d rooms = %d entities", len(rooms_status), len(entities))
 
 
 class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
@@ -81,15 +82,17 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         self._home_name = coordinator.home_name
         self._attr_unique_id = f"{self._home_id}_home_climate"
         self._attr_name = self._home_name
+        
+        _LOGGER.info("Creating home climate: %s (ID: %s)", self._home_name, self._home_id)
 
     @property
     def device_info(self):
-        """Return device info."""
+        """Return device info for home."""
         return {
-            "identifiers": {(DOMAIN, self._home_id)},
-            "name": self._home_name,
+            "identifiers": {(DOMAIN, f"{self._home_id}_home")},
+            "name": f"Système de chauffage",
             "manufacturer": "Muller Intuitiv",
-            "model": "Système de chauffage",
+            "model": "Contrôle central",
         }
 
     @property
@@ -125,10 +128,8 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         
         try:
             if hvac_mode == HVACMode.AUTO:
-                # Set to schedule mode
                 await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
             elif hvac_mode == HVACMode.OFF:
-                # Set to frost protection
                 await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG)
             
             await self.coordinator.async_request_refresh()
@@ -144,10 +145,8 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
             if preset_mode == PRESET_HOME:
                 await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
             elif preset_mode == PRESET_AWAY:
-                # Away mode indefinitely (endtime = 0)
                 await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
             elif preset_mode == "frost_protection":
-                # Frost protection indefinitely
                 await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
             
             await self.coordinator.async_request_refresh()
@@ -165,7 +164,6 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
             "therm_mode": status.get("therm_mode"),
         }
         
-        # Add selected schedule name
         schedules = status.get("schedules", [])
         for schedule in schedules:
             if schedule.get("type") == "therm" and schedule.get("selected"):
@@ -204,7 +202,7 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
             "name": self._room_name,
             "manufacturer": "Muller Intuitiv",
             "model": "Radiateur connecté",
-            "via_device": (DOMAIN, self._home_id),
+            "via_device": (DOMAIN, f"{self._home_id}_home"),
         }
 
     def _get_room_data(self) -> dict[str, Any] | None:
@@ -246,7 +244,7 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
             return HVACMode.HEAT
         elif setpoint_mode in [MODE_OFF, MODE_HG]:
             return HVACMode.OFF
-        else:  # home, schedule, etc.
+        else:
             return HVACMode.AUTO
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -255,7 +253,7 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
         if temperature is None:
             return
         
-        _LOGGER.info("Setting temperature to %s°C for %s (manual mode, %dm)", 
+        _LOGGER.info("Setting temperature to %s°C for %s (manual, %dm)", 
                     temperature, self._room_name, DEFAULT_MANUAL_DURATION)
         
         try:
@@ -277,30 +275,15 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
         
         try:
             if hvac_mode == HVACMode.AUTO:
-                # Follow home schedule
-                await self.api_client.set_room_state(
-                    self._home_id,
-                    self._room_id,
-                    MODE_HOME
-                )
+                await self.api_client.set_room_state(self._home_id, self._room_id, MODE_HOME)
             elif hvac_mode == HVACMode.HEAT:
-                # Manual mode with current/default temperature
                 room = self._get_room_data()
                 temp = room.get("therm_setpoint_temperature", 19) if room else 19
                 await self.api_client.set_room_state(
-                    self._home_id,
-                    self._room_id,
-                    MODE_MANUAL,
-                    temp,
-                    DEFAULT_MANUAL_DURATION
+                    self._home_id, self._room_id, MODE_MANUAL, temp, DEFAULT_MANUAL_DURATION
                 )
             elif hvac_mode == HVACMode.OFF:
-                # Turn off this room
-                await self.api_client.set_room_state(
-                    self._home_id,
-                    self._room_id,
-                    MODE_OFF
-                )
+                await self.api_client.set_room_state(self._home_id, self._room_id, MODE_OFF)
             
             await self.coordinator.async_request_refresh()
         except Exception as err:
@@ -319,23 +302,18 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
             "setpoint_mode": room.get("therm_setpoint_mode"),
         }
         
-        # Add end time if in manual mode
         if room.get("therm_setpoint_end_time"):
             attrs["manual_mode_end_time"] = room["therm_setpoint_end_time"]
         
-        # Add heating status
         if "heating_power_request" in room:
             attrs["heating_power_request"] = room["heating_power_request"]
         
-        # Add reachable status
         if "reachable" in room:
             attrs["reachable"] = room["reachable"]
         
-        # Add open window detection
         if "open_window" in room:
             attrs["open_window"] = room["open_window"]
         
-        # Add anticipating
         if "anticipating" in room:
             attrs["anticipating"] = room["anticipating"]
         

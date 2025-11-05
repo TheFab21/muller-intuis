@@ -27,7 +27,6 @@ async def async_setup_entry(
     status = coordinator.data.get("status", {})
     schedules = status.get("schedules", [])
     
-    # Filter only therm schedules
     therm_schedules = [s for s in schedules if s.get("type") == "therm"]
     
     if therm_schedules:
@@ -41,7 +40,8 @@ async def async_setup_entry(
 class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
     """Select entity for choosing the active heating schedule."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:calendar-clock"
 
     def __init__(self, coordinator, api_client) -> None:
         """Initialize the select entity."""
@@ -50,16 +50,16 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
         self._home_id = coordinator.home_id
         self._home_name = coordinator.home_name
         self._attr_unique_id = f"{self._home_id}_schedule_select"
-        self._attr_name = f"Planning {self._home_name}"
+        self._attr_name = "Planning"
 
     @property
     def device_info(self):
-        """Return device info."""
+        """Return device info - same as home climate."""
         return {
-            "identifiers": {(DOMAIN, self._home_id)},
-            "name": self._home_name,
+            "identifiers": {(DOMAIN, f"{self._home_id}_home")},
+            "name": "Système de chauffage",
             "manufacturer": "Muller Intuitiv",
-            "model": "Système de chauffage",
+            "model": "Contrôle central",
         }
 
     @property
@@ -68,7 +68,6 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
         status = self.coordinator.data.get("status", {})
         schedules = status.get("schedules", [])
         
-        # Only therm schedules
         therm_schedules = [s for s in schedules if s.get("type") == "therm"]
         
         return [s.get("name", f"Planning {s.get('id')}") for s in therm_schedules]
@@ -79,12 +78,10 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
         status = self.coordinator.data.get("status", {})
         schedules = status.get("schedules", [])
         
-        # Find selected therm schedule
         for schedule in schedules:
             if schedule.get("type") == "therm" and schedule.get("selected", False):
                 return schedule.get("name", f"Planning {schedule.get('id')}")
         
-        # If none selected, return first therm schedule
         therm_schedules = [s for s in schedules if s.get("type") == "therm"]
         if therm_schedules:
             return therm_schedules[0].get("name", f"Planning {therm_schedules[0].get('id')}")
@@ -95,7 +92,6 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
         """Change the selected schedule."""
         _LOGGER.info("Changing active schedule to: %s", option)
         
-        # Find schedule ID by name
         status = self.coordinator.data.get("status", {})
         schedules = status.get("schedules", [])
         
