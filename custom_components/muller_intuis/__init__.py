@@ -27,8 +27,10 @@ from homeassistant.helpers.update_coordinator import (
 
 from .const import (
     API_AUTH_URL,
-    API_HOMES_URL,
+    API_HOMESDATA_URL,
     API_HOMESTATUS_URL,
+    API_SETSTATE_URL,
+    API_SETTHERMMODE_URL,
     DOMAIN,
     OAUTH_GRANT_TYPE,
     OAUTH_SCOPE,
@@ -200,8 +202,16 @@ class MullerIntuisApiClient:
 
         headers = {
             "Authorization": f"Bearer {self._access_token}",
-            "Content-Type": "application/x-www-form-urlencoded",
         }
+        
+        # Determine if we need JSON or form-urlencoded
+        if method == "POST_JSON":
+            headers["Content-Type"] = "application/json"
+            method = "POST"
+            request_data = data  # Will be sent as JSON
+        else:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            request_data = data  # Will be sent as form data
 
         try:
             timeout = aiohttp.ClientTimeout(total=30)
@@ -209,8 +219,13 @@ class MullerIntuisApiClient:
                 async with self.session.get(url, headers=headers, params=data, timeout=timeout) as response:
                     return await self._handle_response(response)
             else:
-                async with self.session.post(url, headers=headers, data=data, timeout=timeout) as response:
-                    return await self._handle_response(response)
+                # POST request
+                if headers["Content-Type"] == "application/json":
+                    async with self.session.post(url, headers=headers, json=request_data, timeout=timeout) as response:
+                        return await self._handle_response(response)
+                else:
+                    async with self.session.post(url, headers=headers, data=request_data, timeout=timeout) as response:
+                        return await self._handle_response(response)
 
         except aiohttp.ClientError as err:
             _LOGGER.error("API request error: %s", err)
@@ -240,7 +255,7 @@ class MullerIntuisApiClient:
 
     async def get_homes_data(self) -> dict[str, Any]:
         """Get homes data."""
-        return await self._api_request(API_HOMES_URL, method="GET")
+        return await self._api_request(API_HOMESDATA_URL, method="GET")
 
     async def get_home_status(self, home_id: str) -> dict[str, Any]:
         """Get home status."""
@@ -250,28 +265,37 @@ class MullerIntuisApiClient:
             data={"home_id": home_id},
         )
 
-    async def set_room_thermpoint(
-        self, home_id: str, room_id: str, mode: str, temp: float | None = None
+    async def set_room_state(
+        self, home_id: str, room_id: str, mode: str, temp: float | None = None, end_time: int | None = None
     ) -> dict[str, Any]:
-        """Set room temperature setpoint."""
-        from .const import API_SETROOMTHERMPOINT_URL
+        """Set room state (temperature setpoint and mode)."""
+        _LOGGER.debug("Setting room state: home=%s, room=%s, mode=%s, temp=%s", home_id, room_id, mode, temp)
         
-        data = {
-            "home_id": home_id,
-            "room_id": room_id,
-            "mode": mode,
+        room_data = {
+            "id": room_id,
+            "therm_setpoint_mode": mode,
         }
         
         if temp is not None:
-            data["temp"] = temp
+            room_data["therm_setpoint_temperature"] = temp
+            
+        if end_time is not None:
+            room_data["therm_setpoint_end_time"] = end_time
+        
+        payload = {
+            "home": {
+                "id": home_id,
+                "rooms": [room_data]
+            }
+        }
 
-        return await self._api_request(API_SETROOMTHERMPOINT_URL, data=data)
+        return await self._api_request(API_SETSTATE_URL, data=payload, method="POST_JSON")
 
     async def set_therm_mode(
-        self, home_id: str, mode: str, schedule_id: str | None = None
+        self, home_id: str, mode: str, schedule_id: str | None = None, end_time: int | None = None
     ) -> dict[str, Any]:
         """Set home thermostat mode."""
-        from .const import API_SETTHERMMODE_URL
+        _LOGGER.debug("Setting therm mode: home=%s, mode=%s, schedule=%s", home_id, mode, schedule_id)
         
         data = {
             "home_id": home_id,
@@ -280,6 +304,9 @@ class MullerIntuisApiClient:
         
         if schedule_id:
             data["schedule_id"] = schedule_id
+            
+        if end_time is not None:
+            data["endtime"] = end_time
 
         return await self._api_request(API_SETTHERMMODE_URL, data=data)
 

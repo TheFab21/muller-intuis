@@ -8,9 +8,9 @@ CONF_HOME_ID = "home_id"
 # API endpoints
 API_BASE_URL = "https://app.muller-intuitiv.net"
 API_AUTH_URL = f"{API_BASE_URL}/oauth2/token"
-API_HOMES_URL = f"{API_BASE_URL}/api/homesdata"
+API_HOMESDATA_URL = f"{API_BASE_URL}/api/homesdata"
 API_HOMESTATUS_URL = f"{API_BASE_URL}/api/homestatus"
-API_SETROOMTHERMPOINT_URL = f"{API_BASE_URL}/api/setroomthermpoint"
+API_SETSTATE_URL = f"{API_BASE_URL}/syncapi/v1/setstate"
 API_SETTHERMMODE_URL = f"{API_BASE_URL}/api/setthermmode"
 
 # OAuth2 parameters

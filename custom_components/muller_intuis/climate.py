@@ -161,7 +161,7 @@ class MullerIntuisClimate(CoordinatorEntity, ClimateEntity):
         _LOGGER.info("Setting temperature to %s for room %s", temperature, self._attr_name)
         
         try:
-            await self.api_client.set_room_thermpoint(
+            await self.api_client.set_room_state(
                 self._home_id,
                 self._room_id,
                 "manual",
@@ -184,7 +184,7 @@ class MullerIntuisClimate(CoordinatorEntity, ClimateEntity):
                 # Set to manual mode with current setpoint
                 room = self._get_room_data()
                 temp = room.get("therm_setpoint_temperature", 19) if room else 19
-                await self.api_client.set_room_thermpoint(
+                await self.api_client.set_room_state(
                     self._home_id,
                     self._room_id,
                     "manual",
