@@ -50,19 +50,24 @@ async def async_setup_entry(
     
     rooms_map = {room["id"]: room for room in rooms_info}
     
-    # Add home climate entity
-    entities.append(MullerIntuisHomeClimate(coordinator, api_client))
-    _LOGGER.info("Added home climate entity: %s", coordinator.home_name)
+    # Add home climate entity FIRST
+    home_entity = MullerIntuisHomeClimate(coordinator, api_client)
+    entities.append(home_entity)
+    _LOGGER.warning("ADDED HOME CLIMATE: %s with unique_id=%s", 
+                    home_entity.name, home_entity.unique_id)
     
     # Add room climate entities
     for room_status in rooms_status:
         room_id = room_status.get("id")
         room_info = rooms_map.get(room_id, {})
         room_data = {**room_info, **room_status}
-        entities.append(MullerIntuisRoomClimate(coordinator, api_client, room_data))
+        room_entity = MullerIntuisRoomClimate(coordinator, api_client, room_data)
+        entities.append(room_entity)
+        _LOGGER.debug("Added room climate: %s", room_entity.name)
     
     async_add_entities(entities)
-    _LOGGER.info("Climate setup: 1 home + %d rooms = %d entities", len(rooms_status), len(entities))
+    _LOGGER.warning("Climate setup completed: %d total entities (1 home + %d rooms)", 
+                   len(entities), len(rooms_status))
 
 
 class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
@@ -82,7 +87,8 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"{self._home_id}_home_climate"
         self._attr_name = self._home_name
         
-        _LOGGER.info("Creating home climate: %s (ID: %s)", self._home_name, self._home_id)
+        _LOGGER.warning("INITIALIZING HOME CLIMATE: name=%s, unique_id=%s, home_id=%s", 
+                       self._attr_name, self._attr_unique_id, self._home_id)
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
@@ -92,12 +98,19 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
     @property
     def device_info(self):
         """Return device info for home."""
-        return {
+        device = {
             "identifiers": {(DOMAIN, f"{self._home_id}_home")},
             "name": "Système de chauffage",
             "manufacturer": "Muller Intuitiv",
             "model": "Contrôle central",
         }
+        _LOGGER.debug("HOME CLIMATE device_info: %s", device)
+        return device
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -201,6 +214,16 @@ class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
     def supported_features(self) -> ClimateEntityFeature:
         """Return the list of supported features."""
         return ClimateEntityFeature.TARGET_TEMPERATURE
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        room = self._get_room_data()
+        if room:
+            return room.get("reachable", True)
+        return False
 
     @property
     def device_info(self):
