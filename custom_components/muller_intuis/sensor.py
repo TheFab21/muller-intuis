@@ -10,13 +10,10 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    PERCENTAGE,
-    UnitOfEnergy,
-    UnitOfTemperature,
-)
+from homeassistant.const import UnitOfTemperature, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
@@ -28,125 +25,103 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Muller Intuis sensor devices."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    """Set up Muller Intuis sensor platform."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     
-    # Attendre que les données soient chargées
-    await coordinator.async_update_data()
-    
-    # Créer les capteurs pour chaque pièce
     entities = []
-    rooms = coordinator.data.get("rooms", [])
     
-    for room in rooms:
-        # Température mesurée
-        entities.append(
-            MullerIntuisTemperatureSensor(coordinator, room)
-        )
-        
-        # Puissance de chauffe
-        entities.append(
-            MullerIntuisHeatingPowerSensor(coordinator, room)
-        )
-        
-        # Énergie quotidienne (si disponible)
-        if "energy_day" in room:
-            entities.append(
-                MullerIntuisEnergySensor(coordinator, room)
-            )
+    status = coordinator.data.get("status", {})
+    rooms_status = status.get("rooms", [])
+    rooms_info = status.get("rooms_info", [])
     
-    async_add_entities(entities, True)
+    rooms_map = {room["id"]: room for room in rooms_info}
+    
+    for room_status in rooms_status:
+        room_id = room_status.get("id")
+        room_info = rooms_map.get(room_id, {})
+        room_data = {**room_info, **room_status}
+        
+        # Temperature sensor
+        entities.append(MullerIntuisTemperatureSensor(coordinator, room_data))
+        # Heating power sensor
+        entities.append(MullerIntuisHeatingPowerSensor(coordinator, room_data))
+        
+    async_add_entities(entities)
+    _LOGGER.info("Sensor platform setup completed with %d entities", len(entities))
 
 
-class MullerIntuisSensorBase(SensorEntity):
+class MullerIntuisSensorBase(CoordinatorEntity, SensorEntity):
     """Base class for Muller Intuis sensors."""
-    
-    def __init__(self, coordinator, room: dict) -> None:
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, room_data: dict[str, Any], sensor_type: str, name_suffix: str) -> None:
         """Initialize the sensor."""
-        self.coordinator = coordinator
-        self._room = room
-        self._room_id = room["id"]
-        room_name = room.get("name") or room.get("module_name") or room.get("id")
-        self._attr_device_info = {
+        super().__init__(coordinator)
+        self._room_id = room_data["id"]
+        self._room_name = room_data.get("name", "Unknown Room")
+        self._sensor_type = sensor_type
+        self._attr_unique_id = f"{self._room_id}_{sensor_type}"
+        self._attr_name = name_suffix
+        self._home_id = coordinator.home_id
+
+    @property
+    def device_info(self):
+        """Return device info."""
+        return {
             "identifiers": {(DOMAIN, self._room_id)},
-            "name": room_name,
+            "name": self._room_name,
             "manufacturer": "Muller Intuitiv",
-            "model": "Intuis Connect",
+            "model": "Radiateur connecté",
+            "via_device": (DOMAIN, self._home_id),
         }
-    
-    async def async_update(self) -> None:
-        """Update the entity."""
-        await self.coordinator.async_update_data()
-        self._update_room_data()
-    
-    def _update_room_data(self) -> None:
-        """Update room data from coordinator."""
-        rooms = self.coordinator.data.get("rooms", [])
+
+    def _get_room_data(self) -> dict[str, Any] | None:
+        """Get current room data from coordinator."""
+        status = self.coordinator.data.get("status", {})
+        rooms = status.get("rooms", [])
+        
         for room in rooms:
-            if room["id"] == self._room_id:
-                self._room = room
-                break
+            if room.get("id") == self._room_id:
+                return room
+        return None
 
 
 class MullerIntuisTemperatureSensor(MullerIntuisSensorBase):
     """Temperature sensor for Muller Intuis."""
-    
+
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    
-    def __init__(self, coordinator, room: dict) -> None:
+
+    def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
         """Initialize the temperature sensor."""
-        super().__init__(coordinator, room)
-        room_name = room.get("name") or room.get("module_name") or room.get("id")
-        self._attr_name = f"Muller {room_name} Temperature"
-        self._attr_unique_id = f"muller_{self._room_id}_temperature"
-    
+        super().__init__(coordinator, room_data, "temperature", "Température")
+
     @property
     def native_value(self) -> float | None:
-        """Return the current temperature."""
-        return self._room.get("therm_measured_temperature")
+        """Return the temperature value."""
+        room = self._get_room_data()
+        if room:
+            return room.get("therm_measured_temperature")
+        return None
 
 
 class MullerIntuisHeatingPowerSensor(MullerIntuisSensorBase):
     """Heating power sensor for Muller Intuis."""
-    
+
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_icon = "mdi:radiator"
-    
-    def __init__(self, coordinator, room: dict) -> None:
+
+    def __init__(self, coordinator, room_data: dict[str, Any]) -> None:
         """Initialize the heating power sensor."""
-        super().__init__(coordinator, room)
-        room_name = room.get("name") or room.get("module_name") or room.get("id")
-        self._attr_name = f"Muller {room_name} Heating Power"
-        self._attr_unique_id = f"muller_{self._room_id}_heating_power"
-    
+        super().__init__(coordinator, room_data, "heating_power", "Puissance de chauffe")
+
     @property
     def native_value(self) -> int | None:
-        """Return the heating power request."""
-        return self._room.get("heating_power_request", 0)
-
-
-class MullerIntuisEnergySensor(MullerIntuisSensorBase):
-    """Daily energy sensor for Muller Intuis."""
-    
-    _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-    
-    def __init__(self, coordinator, room: dict) -> None:
-        """Initialize the energy sensor."""
-        super().__init__(coordinator, room)
-        room_name = room.get("name") or room.get("module_name") or room.get("id")
-        self._attr_name = f"Muller {room_name} Daily Energy"
-        self._attr_unique_id = f"muller_{self._room_id}_daily_energy"
-    
-    @property
-    def native_value(self) -> float | None:
-        """Return the daily energy consumption."""
-        energy = self._room.get("energy_day")
-        if energy is not None:
-            # Convertir de Wh en kWh
-            return energy / 1000
+        """Return the heating power value (percentage)."""
+        room = self._get_room_data()
+        if room:
+            return room.get("heating_power_request", 0)
         return None

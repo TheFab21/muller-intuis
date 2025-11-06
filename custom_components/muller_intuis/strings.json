@@ -3,22 +3,22 @@
     "step": {
       "user": {
         "title": "Configuration Muller Intuis Connect",
-        "description": "Configurez votre intégration Muller Intuis Connect. Vous devez d'abord créer une application sur https://dev.netatmo.com",
+        "description": "Configurez votre compte Muller Intuitiv",
         "data": {
-          "client_id": "Client ID (depuis dev.netatmo.com)",
-          "client_secret": "Client Secret (depuis dev.netatmo.com)",
+          "client_id": "Client ID (dev.netatmo.com)",
+          "client_secret": "Client Secret (dev.netatmo.com)",
           "username": "Email Muller Intuitiv",
           "password": "Mot de passe Muller Intuitiv"
         }
       }
     },
     "error": {
+      "cannot_connect": "Impossible de se connecter",
       "invalid_auth": "Identifiants invalides",
-      "cannot_connect": "Impossible de se connecter à l'API",
       "unknown": "Erreur inconnue"
     },
     "abort": {
-      "already_configured": "Cette intégration est déjà configurée"
+      "already_configured": "Ce compte est déjà configuré"
     }
   }
 }

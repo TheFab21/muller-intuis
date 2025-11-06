@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+import time
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -16,37 +16,21 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    MODE_MANUAL,
+    MODE_HOME,
+    MODE_OFF,
+    MODE_HG,
+    MODE_SCHEDULE,
+    MODE_AWAY,
+    MODE_HOME_HG,
+    DEFAULT_MANUAL_DURATION,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-# Presets personnalisés
-PRESET_SCHEDULE = "schedule"
-PRESET_MANUAL = "manual"
-PRESET_FROST_PROTECTION = "frost_protection"
-
-# Mapping des modes HVAC vers les modes API
-HVAC_MODE_TO_API = {
-    HVACMode.AUTO: "schedule",      # Mode planning
-    HVACMode.HEAT: "manual",        # Mode manuel avec température
-    HVACMode.OFF: "off",            # VRAI arrêt complet (nouveau)
-}
-
-# Mapping des presets vers les modes API
-PRESET_TO_API = {
-    PRESET_SCHEDULE: "schedule",
-    PRESET_MANUAL: "manual",
-    PRESET_AWAY: "away",
-    PRESET_FROST_PROTECTION: "hg",  # Hors-gel
-}
-
-# Mapping inverse
-API_TO_HVAC_MODE = {v: k for k, v in HVAC_MODE_TO_API.items()}
-API_TO_HVAC_MODE["hg"] = HVACMode.OFF  # hg affiche comme OFF dans l'interface
-API_TO_HVAC_MODE["away"] = HVACMode.AUTO  # away affiche comme AUTO
-
-API_TO_PRESET = {v: k for k, v in PRESET_TO_API.items()}
 
 
 async def async_setup_entry(
@@ -54,216 +38,315 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Muller Intuis climate devices."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    """Set up Muller Intuis climate platform."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    api_client = hass.data[DOMAIN][entry.entry_id]["api_client"]
     
-    # Attendre que les données soient chargées
-    await coordinator.async_update_data()
-    
-    # Créer une entité climate pour chaque pièce
     entities = []
-    rooms = coordinator.data.get("rooms", [])
     
-    _LOGGER.debug("Found %d rooms", len(rooms))
+    status = coordinator.data.get("status", {})
+    rooms_status = status.get("rooms", [])
+    rooms_info = status.get("rooms_info", [])
     
-    for room in rooms:
-        _LOGGER.debug("Room data: %s", room)
-        entities.append(MullerIntuisClimate(coordinator, room))
+    rooms_map = {room["id"]: room for room in rooms_info}
     
-    async_add_entities(entities, True)
+    # Add home climate entity FIRST
+    home_entity = MullerIntuisHomeClimate(coordinator, api_client)
+    entities.append(home_entity)
+    
+    # Add room climate entities
+    for room_status in rooms_status:
+        room_id = room_status.get("id")
+        room_info = rooms_map.get(room_id, {})
+        room_data = {**room_info, **room_status}
+        room_entity = MullerIntuisRoomClimate(coordinator, api_client, room_data)
+        entities.append(room_entity)
+    
+    async_add_entities(entities)
+    _LOGGER.info("Climate setup: 1 home + %d rooms = %d entities", len(rooms_status), len(entities))
 
 
-class MullerIntuisClimate(ClimateEntity):
-    """Representation of a Muller Intuis Climate device."""
-    
+class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
+    """Climate entity for the entire home."""
+
+    _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_supported_features = (
-        ClimateEntityFeature.TARGET_TEMPERATURE
-        | ClimateEntityFeature.PRESET_MODE
-    )
-    _attr_hvac_modes = [
-        HVACMode.AUTO,   # Mode planning
-        HVACMode.HEAT,   # Mode manuel
-        HVACMode.OFF,    # Arrêt complet
-    ]
-    _attr_preset_modes = [
-        PRESET_SCHEDULE,
-        PRESET_MANUAL,
-        PRESET_AWAY,
-        PRESET_FROST_PROTECTION,
-    ]
-    
-    def __init__(self, coordinator, room: dict) -> None:
-        """Initialize the climate device."""
-        self.coordinator = coordinator
-        self._room = room
-        self._room_id = room["id"]
-        # Le nom peut être dans 'name' ou dans 'module_name' selon la structure API
-        room_name = room.get("name") or room.get("module_name") or room.get("id")
-        self._attr_name = f"Muller {room_name}"
-        self._attr_unique_id = f"muller_{self._room_id}"
-        
-        # Min/Max températures
-        self._attr_min_temp = 7.0
-        self._attr_max_temp = 30.0
-        self._attr_target_temperature_step = 0.5
-    
+    _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
+    _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, "frost_protection"]
+
+    def __init__(self, coordinator, api_client) -> None:
+        """Initialize the home climate device."""
+        super().__init__(coordinator)
+        self.api_client = api_client
+        self._home_id = coordinator.home_id
+        self._home_name = coordinator.home_name
+        self._attr_unique_id = f"{self._home_id}_home_climate"
+        self._attr_name = self._home_name
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        """Return the list of supported features."""
+        return ClimateEntityFeature(0)
+
     @property
     def device_info(self):
-        """Return device information."""
-        room_name = self._room.get("name") or self._room.get("module_name") or self._room.get("id")
+        """Return device info for home."""
+        return {
+            "identifiers": {(DOMAIN, f"{self._home_id}_home")},
+            "name": "Système de chauffage",
+            "manufacturer": "Muller Intuitiv",
+            "model": "Contrôle central",
+        }
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def hvac_mode(self) -> HVACMode:
+        """Return current operation mode."""
+        status = self.coordinator.data.get("status", {})
+        therm_mode = status.get("therm_mode")
+        
+        # Map API modes to HVAC modes
+        if therm_mode == MODE_SCHEDULE:
+            return HVACMode.AUTO  # Schedule = Auto
+        elif therm_mode == MODE_AWAY:
+            return HVACMode.HEAT  # Away = Heat (temporary mode)
+        elif therm_mode == MODE_HOME_HG:
+            return HVACMode.OFF  # Frost protection = Off
+        return HVACMode.AUTO
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return the current preset mode."""
+        status = self.coordinator.data.get("status", {})
+        therm_mode = status.get("therm_mode")
+        
+        if therm_mode == MODE_SCHEDULE:
+            return PRESET_HOME  # "schedule"
+        elif therm_mode == MODE_AWAY:
+            return PRESET_AWAY  # "away"
+        elif therm_mode == MODE_HOME_HG:
+            return "frost_protection"  # "hg"
+        
+        return PRESET_HOME
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Set new target hvac mode."""
+        _LOGGER.info("Setting home HVAC mode to %s", hvac_mode)
+        
+        try:
+            if hvac_mode == HVACMode.AUTO:
+                # Auto = Schedule mode
+                await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+            elif hvac_mode == HVACMode.HEAT:
+                # Heat = Away mode
+                await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
+            elif hvac_mode == HVACMode.OFF:
+                # Off = Frost protection
+                await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
+            
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("Error setting home HVAC mode: %s", err)
+            raise
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode."""
+        _LOGGER.info("Setting home preset mode to %s", preset_mode)
+        
+        try:
+            if preset_mode == PRESET_HOME:
+                # "schedule"
+                await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+            elif preset_mode == PRESET_AWAY:
+                # "away"
+                await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
+            elif preset_mode == "frost_protection":
+                # "hg"
+                await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
+            
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("Error setting home preset mode: %s", err)
+            raise
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        status = self.coordinator.data.get("status", {})
+        
+        attrs = {
+            "home_id": self._home_id,
+            "therm_mode": status.get("therm_mode"),
+        }
+        
+        schedules = status.get("schedules", [])
+        for schedule in schedules:
+            if schedule.get("type") == "therm" and schedule.get("selected"):
+                attrs["active_schedule"] = schedule.get("name")
+                break
+        
+        return attrs
+
+
+class MullerIntuisRoomClimate(CoordinatorEntity, ClimateEntity):
+    """Climate entity for a single room/heater."""
+
+    _attr_has_entity_name = False
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
+    _attr_min_temp = 7
+    _attr_max_temp = 30
+    _attr_target_temperature_step = 0.5
+
+    def __init__(self, coordinator, api_client, room_data: dict[str, Any]) -> None:
+        """Initialize the room climate device."""
+        super().__init__(coordinator)
+        self.api_client = api_client
+        self._room_id = room_data["id"]
+        self._room_name = room_data.get("name", "Unknown Room")
+        self._attr_unique_id = f"{self._room_id}_climate"
+        self._attr_name = self._room_name
+        self._home_id = coordinator.home_id
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        """Return the list of supported features."""
+        return ClimateEntityFeature.TARGET_TEMPERATURE
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        room = self._get_room_data()
+        if room:
+            return room.get("reachable", True)
+        return False
+
+    @property
+    def device_info(self):
+        """Return device info."""
         return {
             "identifiers": {(DOMAIN, self._room_id)},
-            "name": room_name,
+            "name": self._room_name,
             "manufacturer": "Muller Intuitiv",
-            "model": "Intuis Connect",
+            "model": "Radiateur connecté",
+            "via_device": (DOMAIN, f"{self._home_id}_home"),
         }
-    
+
+    def _get_room_data(self) -> dict[str, Any] | None:
+        """Get current room data from coordinator."""
+        status = self.coordinator.data.get("status", {})
+        rooms = status.get("rooms", [])
+        
+        for room in rooms:
+            if room.get("id") == self._room_id:
+                return room
+        return None
+
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        return self._room.get("therm_measured_temperature")
-    
+        room = self._get_room_data()
+        if room:
+            return room.get("therm_measured_temperature")
+        return None
+
     @property
     def target_temperature(self) -> float | None:
-        """Return the temperature we try to reach."""
-        return self._room.get("therm_setpoint_temperature")
-    
+        """Return the target temperature."""
+        room = self._get_room_data()
+        if room:
+            return room.get("therm_setpoint_temperature")
+        return None
+
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return current HVAC mode."""
-        # Mode global de la maison
-        home_mode = self.coordinator.data.get("therm_mode")
+        """Return current operation mode."""
+        room = self._get_room_data()
+        if not room:
+            return HVACMode.AUTO
         
-        # Convertir le mode API en mode HVAC
-        if home_mode in API_TO_HVAC_MODE:
-            return API_TO_HVAC_MODE[home_mode]
+        setpoint_mode = room.get("therm_setpoint_mode")
         
-        # Par défaut, retourner AUTO
-        return HVACMode.AUTO
-    
-    @property
-    def preset_mode(self) -> str | None:
-        """Return current preset mode."""
-        home_mode = self.coordinator.data.get("therm_mode")
-        
-        if home_mode in API_TO_PRESET:
-            return API_TO_PRESET[home_mode]
-        
-        return None
-    
-    @property
-    def hvac_action(self) -> str | None:
-        """Return current HVAC action."""
-        heating_power = self._room.get("heating_power_request", 0)
-        
-        if self.hvac_mode == HVACMode.OFF:
-            return "off"
-        elif heating_power > 0:
-            return "heating"
+        if setpoint_mode == MODE_MANUAL:
+            return HVACMode.HEAT
+        elif setpoint_mode in [MODE_OFF, MODE_HG]:
+            return HVACMode.OFF
         else:
-            return "idle"
-    
+            return HVACMode.AUTO
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
-        
         if temperature is None:
             return
         
+        _LOGGER.info("Setting temperature to %s°C for %s", temperature, self._room_name)
+        
         try:
-            # Passer en mode manuel et définir la température
-            await self.coordinator.async_set_room_temperature(
+            await self.api_client.set_room_state(
+                self._home_id,
                 self._room_id,
+                MODE_MANUAL,
                 temperature,
+                DEFAULT_MANUAL_DURATION
             )
-            
-            # Mettre à jour l'état local
-            self._room["therm_setpoint_temperature"] = temperature
-            self.async_write_ha_state()
-            
+            await self.coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Error setting temperature: %s", err)
-    
+            raise
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new HVAC mode."""
-        if hvac_mode not in self._attr_hvac_modes:
-            _LOGGER.error("Unsupported HVAC mode: %s", hvac_mode)
-            return
+        """Set new target hvac mode."""
+        _LOGGER.info("Setting HVAC mode to %s for %s", hvac_mode, self._room_name)
         
         try:
-            api_mode = HVAC_MODE_TO_API[hvac_mode]
-            
-            # Pour le mode OFF, on envoie vraiment "off" à l'API
-            if hvac_mode == HVACMode.OFF:
-                _LOGGER.info("Setting real OFF mode (not frost protection)")
-                await self.coordinator.async_set_home_mode("off", endtime=None)
-            elif hvac_mode == HVACMode.AUTO:
-                # Mode AUTO = mode planning
-                await self.coordinator.async_set_home_mode("schedule", endtime=None)
+            if hvac_mode == HVACMode.AUTO:
+                await self.api_client.set_room_state(self._home_id, self._room_id, MODE_HOME)
             elif hvac_mode == HVACMode.HEAT:
-                # Mode HEAT = mode manuel, garder la température actuelle ou 19°C par défaut
-                temperature = self.target_temperature or 19.0
-                await self.coordinator.async_set_room_temperature(
-                    self._room_id,
-                    temperature,
+                room = self._get_room_data()
+                temp = room.get("therm_setpoint_temperature", 19) if room else 19
+                await self.api_client.set_room_state(
+                    self._home_id, self._room_id, MODE_MANUAL, temp, DEFAULT_MANUAL_DURATION
                 )
+            elif hvac_mode == HVACMode.OFF:
+                await self.api_client.set_room_state(self._home_id, self._room_id, MODE_OFF)
             
-            # Mettre à jour les données
-            await self.coordinator.async_update_data()
-            self._update_room_data()
-            self.async_write_ha_state()
-            
+            await self.coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Error setting HVAC mode: %s", err)
-    
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set new preset mode."""
-        if preset_mode not in self._attr_preset_modes:
-            _LOGGER.error("Unsupported preset mode: %s", preset_mode)
-            return
+            raise
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        room = self._get_room_data()
+        if not room:
+            return {}
         
-        try:
-            api_mode = PRESET_TO_API[preset_mode]
-            
-            # Définir l'endtime selon le preset
-            endtime = None
-            if api_mode == "away":
-                # Mode absent : par défaut 3 heures
-                endtime = int((datetime.now() + timedelta(hours=3)).timestamp())
-            elif api_mode == "manual":
-                # Mode manuel : garder la température et mettre 3 heures
-                temperature = self.target_temperature or 19.0
-                await self.coordinator.async_set_room_temperature(
-                    self._room_id,
-                    temperature,
-                )
-                # Pas besoin d'appeler async_set_home_mode après
-                await self.coordinator.async_update_data()
-                self._update_room_data()
-                self.async_write_ha_state()
-                return
-            
-            # Pour les autres modes
-            await self.coordinator.async_set_home_mode(api_mode, endtime)
-            
-            # Mettre à jour les données
-            await self.coordinator.async_update_data()
-            self._update_room_data()
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Error setting preset mode: %s", err)
-    
-    async def async_update(self) -> None:
-        """Update the entity."""
-        await self.coordinator.async_update_data()
-        self._update_room_data()
-    
-    def _update_room_data(self) -> None:
-        """Update room data from coordinator."""
-        rooms = self.coordinator.data.get("rooms", [])
-        for room in rooms:
-            if room["id"] == self._room_id:
-                self._room = room
-                break
+        attrs = {
+            "room_id": self._room_id,
+            "setpoint_mode": room.get("therm_setpoint_mode"),
+        }
+        
+        if room.get("therm_setpoint_end_time"):
+            attrs["manual_mode_end_time"] = room["therm_setpoint_end_time"]
+        
+        if "heating_power_request" in room:
+            attrs["heating_power_request"] = room["heating_power_request"]
+        
+        if "reachable" in room:
+            attrs["reachable"] = room["reachable"]
+        
+        if "open_window" in room:
+            attrs["open_window"] = room["open_window"]
+        
+        if "anticipating" in room:
+            attrs["anticipating"] = room["anticipating"]
+        
+        return attrs
