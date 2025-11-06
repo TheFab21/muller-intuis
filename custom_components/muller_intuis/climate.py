@@ -64,7 +64,10 @@ async def async_setup_entry(
     entities = []
     rooms = coordinator.data.get("rooms", [])
     
+    _LOGGER.debug("Found %d rooms", len(rooms))
+    
     for room in rooms:
+        _LOGGER.debug("Room data: %s", room)
         entities.append(MullerIntuisClimate(coordinator, room))
     
     async_add_entities(entities, True)
@@ -95,7 +98,9 @@ class MullerIntuisClimate(ClimateEntity):
         self.coordinator = coordinator
         self._room = room
         self._room_id = room["id"]
-        self._attr_name = f"Muller {room['name']}"
+        # Le nom peut être dans 'name' ou dans 'module_name' selon la structure API
+        room_name = room.get("name") or room.get("module_name") or room.get("id")
+        self._attr_name = f"Muller {room_name}"
         self._attr_unique_id = f"muller_{self._room_id}"
         
         # Min/Max températures
@@ -106,9 +111,10 @@ class MullerIntuisClimate(ClimateEntity):
     @property
     def device_info(self):
         """Return device information."""
+        room_name = self._room.get("name") or self._room.get("module_name") or self._room.get("id")
         return {
             "identifiers": {(DOMAIN, self._room_id)},
-            "name": self._room["name"],
+            "name": room_name,
             "manufacturer": "Muller Intuitiv",
             "model": "Intuis Connect",
         }

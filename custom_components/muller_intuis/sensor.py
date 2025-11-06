@@ -66,9 +66,10 @@ class MullerIntuisSensorBase(SensorEntity):
         self.coordinator = coordinator
         self._room = room
         self._room_id = room["id"]
+        room_name = room.get("name") or room.get("module_name") or room.get("id")
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._room_id)},
-            "name": room["name"],
+            "name": room_name,
             "manufacturer": "Muller Intuitiv",
             "model": "Intuis Connect",
         }
@@ -97,7 +98,8 @@ class MullerIntuisTemperatureSensor(MullerIntuisSensorBase):
     def __init__(self, coordinator, room: dict) -> None:
         """Initialize the temperature sensor."""
         super().__init__(coordinator, room)
-        self._attr_name = f"Muller {room['name']} Temperature"
+        room_name = room.get("name") or room.get("module_name") or room.get("id")
+        self._attr_name = f"Muller {room_name} Temperature"
         self._attr_unique_id = f"muller_{self._room_id}_temperature"
     
     @property
@@ -116,7 +118,8 @@ class MullerIntuisHeatingPowerSensor(MullerIntuisSensorBase):
     def __init__(self, coordinator, room: dict) -> None:
         """Initialize the heating power sensor."""
         super().__init__(coordinator, room)
-        self._attr_name = f"Muller {room['name']} Heating Power"
+        room_name = room.get("name") or room.get("module_name") or room.get("id")
+        self._attr_name = f"Muller {room_name} Heating Power"
         self._attr_unique_id = f"muller_{self._room_id}_heating_power"
     
     @property
@@ -135,7 +138,8 @@ class MullerIntuisEnergySensor(MullerIntuisSensorBase):
     def __init__(self, coordinator, room: dict) -> None:
         """Initialize the energy sensor."""
         super().__init__(coordinator, room)
-        self._attr_name = f"Muller {room['name']} Daily Energy"
+        room_name = room.get("name") or room.get("module_name") or room.get("id")
+        self._attr_name = f"Muller {room_name} Daily Energy"
         self._attr_unique_id = f"muller_{self._room_id}_daily_energy"
     
     @property
