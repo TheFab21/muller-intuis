@@ -12,6 +12,7 @@ from .const import (
     API_BASE_URL,
     AUTH_URL,
     CREATE_NEW_SCHEDULE_URL,
+    DEFAULT_MANUAL_DURATION,
     DELETE_SCHEDULE_URL,
     GET_MEASURE_URL,
     GET_ROOM_MEASURE_URL,
@@ -139,32 +140,61 @@ class MullerIntuisAPI:
         return await self.async_request("POST", HOME_STATUS_URL, data=params)
 
     async def async_set_thermpoint(
-        self, room_id: str, mode: str, temp: float = None, endtime: int = None
-    ):
-        """Définir le point de consigne d'une pièce."""
-        data = {
-            "home_id": self.home_id,
-            "room_id": room_id,
-            "mode": mode,
-        }
-        if temp is not None:
-            data["temp"] = temp
-        if endtime is not None:
-            data["endtime"] = endtime
+    self, room_id: str, mode: str, temp: float = None, endtime: int = None
+):
+    """Définir le point de consigne d'une pièce."""
+    
+    # Validation endtime : minimum 5 min dans le futur
+    if endtime is not None:
+        now = int(time.time())
+        min_time = now + 300  # 5 minutes
+        
+        if endtime < min_time:
+            _LOGGER.warning(
+                "endtime %s is in the past or too soon, adjusting to +3h",
+                endtime
+            )
+            endtime = now + (DEFAULT_MANUAL_DURATION * 60)
+    
+    data = {
+        "home_id": self.home_id,
+        "room_id": room_id,
+        "mode": mode,
+    }
+    if temp is not None:
+        data["temp"] = temp
+    if endtime is not None:
+        data["endtime"] = endtime
 
-        return await self.async_request("POST", SET_THERMPOINT_URL, data=data)
+    return await self.async_request("POST", SET_THERMPOINT_URL, data=data)
 
     async def async_set_therm_mode(
-        self, mode: str, endtime: int = None, schedule_id: str = None
-    ):
-        """Définir le mode de chauffage de la maison."""
-        data = {"home_id": self.home_id, "mode": mode}
-        if endtime is not None:
-            data["endtime"] = endtime
-        if schedule_id is not None:
-            data["schedule_id"] = schedule_id
+    self, mode: str, endtime: int = None, schedule_id: str = None
+):
+    """Définir le mode de chauffage de la maison."""
+    
+    # Validation endtime : minimum 5 min dans le futur  
+    if endtime is not None:
+        now = int(time.time())
+        min_time = now + 300  # 5 minutes
+        
+        if endtime < min_time:
+            _LOGGER.warning(
+                "endtime %s is in the past or too soon, adjusting to +3h",
+                endtime
+            )
+            endtime = now + (DEFAULT_MANUAL_DURATION * 60)
+    
+    data = {
+        "home_id": self.home_id,
+        "mode": mode,
+    }
+    if endtime is not None:
+        data["endtime"] = endtime
+    if schedule_id is not None:
+        data["schedule_id"] = schedule_id
 
-        return await self.async_request("POST", SET_THERM_MODE_URL, data=data)
+    return await self.async_request("POST", SET_THERM_MODE_URL, data=data)
 
     async def async_switch_schedule(self, schedule_id: str):
         """Changer le planning actif."""
