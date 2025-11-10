@@ -302,6 +302,33 @@ class MullerIntuisApiClient:
         
         _LOGGER.info("Sending OFF command to %d rooms", len(rooms_data))
         return await self._api_request(API_SETSTATE_URL, data=payload, method="POST_JSON")
+    
+    async def set_all_rooms_mode(self, home_id: str, rooms: list[dict], mode: str) -> dict[str, Any]:
+        """Set all rooms to a specific mode."""
+        _LOGGER.debug("Setting ALL rooms to mode %s for home %s (%d rooms)", mode, home_id, len(rooms))
+        
+        rooms_data = []
+        for room in rooms:
+            room_id = room.get("id")
+            if room_id:
+                rooms_data.append({
+                    "id": room_id,
+                    "therm_setpoint_mode": mode,
+                })
+        
+        if not rooms_data:
+            _LOGGER.warning("No rooms to set to mode %s", mode)
+            return {"status": "ok"}
+        
+        payload = {
+            "home": {
+                "id": home_id,
+                "rooms": rooms_data
+            }
+        }
+        
+        _LOGGER.info("Sending mode %s command to %d rooms", mode, len(rooms_data))
+        return await self._api_request(API_SETSTATE_URL, data=payload, method="POST_JSON")
 
     async def set_therm_mode(
         self, home_id: str, mode: str, end_time: int | None = None

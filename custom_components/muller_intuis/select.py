@@ -95,17 +95,24 @@ class MullerIntuisScheduleSelect(CoordinatorEntity, SelectEntity):
         status = self.coordinator.data.get("status", {})
         schedules = status.get("schedules", [])
         
+        _LOGGER.debug("Available schedules: %s", [s.get("name") for s in schedules if s.get("type") == "therm"])
+        
         schedule_id = None
         for schedule in schedules:
-            if schedule.get("type") == "therm" and schedule.get("name") == option:
-                schedule_id = schedule.get("id")
-                break
+            if schedule.get("type") == "therm":
+                sched_name = schedule.get("name")
+                _LOGGER.debug("Comparing '%s' with '%s'", sched_name, option)
+                if sched_name == option:
+                    schedule_id = schedule.get("id")
+                    break
         
         if not schedule_id:
-            _LOGGER.error("Schedule not found: %s", option)
+            _LOGGER.error("Schedule not found: '%s'. Available: %s", 
+                         option, [s.get("name") for s in schedules if s.get("type") == "therm"])
             return
         
         try:
+            _LOGGER.info("Switching to schedule ID: %s", schedule_id)
             await self.api_client.switch_home_schedule(self._home_id, schedule_id)
             await self.coordinator.async_request_refresh()
         except Exception as err:

@@ -73,6 +73,7 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
     _attr_preset_modes = [PRESET_HOME, PRESET_AWAY, "frost_protection"]
+    _attr_supported_features = ClimateEntityFeature.PRESET_MODE
 
     def __init__(self, coordinator, api_client) -> None:
         """Initialize the home climate device."""
@@ -109,13 +110,21 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         status = self.coordinator.data.get("status", {})
         therm_mode = status.get("therm_mode")
         
+        # Vérifier si toutes les pièces sont OFF
+        rooms = status.get("rooms", [])
+        if rooms:
+            all_off = all(room.get("therm_setpoint_mode") == "off" for room in rooms)
+            if all_off:
+                return HVACMode.OFF
+        
         # Map API modes to HVAC modes
         if therm_mode == MODE_SCHEDULE:
             return HVACMode.AUTO  # Schedule = Auto
         elif therm_mode == MODE_AWAY:
             return HVACMode.HEAT  # Away = Heat (temporary mode)
         elif therm_mode == MODE_HOME_HG:
-            return HVACMode.OFF  # Frost protection = Off
+            return HVACMode.OFF  # Frost protection = Off (devrait être preset)
+        
         return HVACMode.AUTO
 
     @property
@@ -138,17 +147,22 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         _LOGGER.info("Setting home HVAC mode to %s", hvac_mode)
         
         try:
+            status = self.coordinator.data.get("status", {})
+            rooms = status.get("rooms", [])
+            
             if hvac_mode == HVACMode.AUTO:
-                # Auto = Schedule mode
+                # Auto = Schedule mode + remettre les pièces en mode home
                 await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+                await self.api_client.set_all_rooms_mode(self._home_id, rooms, "home")
+                
             elif hvac_mode == HVACMode.HEAT:
-                # Heat = Away mode (sans endtime = permanent)
+                # Heat = Away mode + remettre les pièces en mode home
                 await self.api_client.set_therm_mode(self._home_id, MODE_AWAY)
+                await self.api_client.set_all_rooms_mode(self._home_id, rooms, "home")
+                
             elif hvac_mode == HVACMode.OFF:
-                # Off = Éteindre toutes les pièces via setstate
+                # Off = Éteindre toutes les pièces
                 _LOGGER.info("Turning OFF all rooms")
-                status = self.coordinator.data.get("status", {})
-                rooms = status.get("rooms", [])
                 await self.api_client.set_all_rooms_off(self._home_id, rooms)
             
             await self.coordinator.async_request_refresh()
@@ -161,15 +175,21 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         _LOGGER.info("Setting home preset mode to %s", preset_mode)
         
         try:
+            status = self.coordinator.data.get("status", {})
+            rooms = status.get("rooms", [])
+            
             if preset_mode == PRESET_HOME:
                 # "schedule"
                 await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+                await self.api_client.set_all_rooms_mode(self._home_id, rooms, "home")
             elif preset_mode == PRESET_AWAY:
                 # "away" (sans endtime = permanent)
                 await self.api_client.set_therm_mode(self._home_id, MODE_AWAY)
+                await self.api_client.set_all_rooms_mode(self._home_id, rooms, "home")
             elif preset_mode == "frost_protection":
-                # "hg" (sans endtime = permanent)
+                # "hg" (hors-gel) + mettre toutes les pièces en hg
                 await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG)
+                await self.api_client.set_all_rooms_mode(self._home_id, rooms, "hg")
             
             await self.coordinator.async_request_refresh()
         except Exception as err:
