@@ -140,13 +140,13 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         try:
             if hvac_mode == HVACMode.AUTO:
                 # Auto = Schedule mode
-                await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+                await self.api_client.async_set_therm_mode(MODE_SCHEDULE)
             elif hvac_mode == HVACMode.HEAT:
-                # Heat = Away mode
-                await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
+                # Heat = Away mode (sans endtime = permanent)
+                await self.api_client.async_set_therm_mode(MODE_AWAY)
             elif hvac_mode == HVACMode.OFF:
-                # Off = Frost protection
-                await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
+                # Off = Frost protection (sans endtime = permanent)
+                await self.api_client.async_set_therm_mode(MODE_HOME_HG)
             
             await self.coordinator.async_request_refresh()
         except Exception as err:
@@ -160,13 +160,13 @@ class MullerIntuisHomeClimate(CoordinatorEntity, ClimateEntity):
         try:
             if preset_mode == PRESET_HOME:
                 # "schedule"
-                await self.api_client.set_therm_mode(self._home_id, MODE_SCHEDULE)
+                await self.api_client.async_set_therm_mode(MODE_SCHEDULE)
             elif preset_mode == PRESET_AWAY:
-                # "away"
-                await self.api_client.set_therm_mode(self._home_id, MODE_AWAY, end_time=0)
+                # "away" (sans endtime = permanent)
+                await self.api_client.async_set_therm_mode(MODE_AWAY)
             elif preset_mode == "frost_protection":
-                # "hg"
-                await self.api_client.set_therm_mode(self._home_id, MODE_HOME_HG, end_time=0)
+                # "hg" (sans endtime = permanent)
+                await self.api_client.async_set_therm_mode(MODE_HOME_HG)
             
             await self.coordinator.async_request_refresh()
         except Exception as err:
