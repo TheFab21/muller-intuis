@@ -276,10 +276,54 @@ class MullerIntuisApiClient:
 
         return await self._api_request(API_SETSTATE_URL, data=payload, method="POST_JSON")
 
+    async def set_all_rooms_off(self, home_id: str, rooms: list[dict]) -> dict[str, Any]:
+        """Set all rooms to OFF mode."""
+        _LOGGER.debug("Setting ALL rooms to OFF for home %s (%d rooms)", home_id, len(rooms))
+        
+        rooms_data = []
+        for room in rooms:
+            room_id = room.get("id")
+            if room_id:
+                rooms_data.append({
+                    "id": room_id,
+                    "therm_setpoint_mode": "off",
+                })
+        
+        if not rooms_data:
+            _LOGGER.warning("No rooms to set OFF")
+            return {"status": "ok"}
+        
+        payload = {
+            "home": {
+                "id": home_id,
+                "rooms": rooms_data
+            }
+        }
+        
+        _LOGGER.info("Sending OFF command to %d rooms", len(rooms_data))
+        return await self._api_request(API_SETSTATE_URL, data=payload, method="POST_JSON")
+
     async def set_therm_mode(
         self, home_id: str, mode: str, end_time: int | None = None
     ) -> dict[str, Any]:
         """Set home thermostat mode."""
+        
+        # Validation endtime : ne pas envoyer si None, sinon vérifier validité
+        if end_time is not None and end_time != 0:
+            now = int(time.time())
+            min_time = now + 300  # 5 minutes dans le futur minimum
+            
+            if end_time < min_time:
+                _LOGGER.warning(
+                    "endtime %s is in the past or too soon, removing it (permanent mode)",
+                    end_time
+                )
+                end_time = None  # Mode permanent
+        elif end_time == 0:
+            # endtime=0 signifie permanent, ne pas l'envoyer
+            _LOGGER.debug("endtime=0 detected, removing it (permanent mode)")
+            end_time = None
+        
         _LOGGER.debug("Setting home therm mode: home=%s, mode=%s, endtime=%s", home_id, mode, end_time)
         
         data = {
